@@ -8,6 +8,9 @@ note() { echo "$@"; }
 drift() { echo "✗ $*"; fail=1; }
 ok() { echo "✓ $*"; }
 
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+ENGINE="${VALORBRAIN_ENGINE_DIR:-/opt/valorbrain}"
+
 # Engine-managed harnesses (claude-code, kiro, opencode, codex, gemini, cursor)
 note "── engine-managed harnesses (valorbrain setup status) ──"
 (cd "$ENGINE" && bun run src/valorbrain.ts setup status 2>/dev/null) || drift "setup status failed"
