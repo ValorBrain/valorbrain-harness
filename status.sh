@@ -10,7 +10,7 @@ ok() { echo "✓ $*"; }
 
 # Engine-managed harnesses (claude-code, kiro, opencode, codex, gemini, cursor)
 note "── engine-managed harnesses (valorbrain setup status) ──"
-(cd /opt/valorbrain && bun run src/valorbrain.ts setup status 2>/dev/null) || drift "setup status failed"
+(cd "$ENGINE" && bun run src/valorbrain.ts setup status 2>/dev/null) || drift "setup status failed"
 
 # ZCode: registry version vs deployed plugin.json vs this repo's source
 note "── zcode ──"

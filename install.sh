@@ -5,7 +5,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-ENGINE=/opt/valorbrain
+ENGINE="${VALORBRAIN_ENGINE_DIR:-/opt/valorbrain}"
 TARGET="${1:-all}"
 
 install_zcode() {
@@ -15,16 +15,17 @@ install_zcode() {
   echo "[zcode] deploying v$ver → $dest"
   mkdir -p "$dest"
   rsync -a --delete "$ROOT/zcode/" "$dest/"
-  python3 - "$ver" "$dest" <<'EOF'
-import json, sys
-ver, dest = sys.argv[1], sys.argv[2]
-p = f"/root/.zcode/cli/plugins/installed_plugins.json"
+  python3 - "$ver" "$HOME" "$dest" <<'EOF'
+import json, sys, os, datetime
+ver, home, dest = sys.argv[1], sys.argv[2], sys.argv[3]
+p = os.path.join(home, ".zcode/cli/plugins/installed_plugins.json")
 d = json.load(open(p))
+now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 for plug in d['plugins']:
     if plug['id'] == 'valorbrain@valor-digital':
         plug['version'] = ver
         plug['installPath'] = dest
-        plug['updatedAt'] = '2026-08-14T00:00:00.000Z'
+        plug['updatedAt'] = now
 json.dump(d, open(p, 'w'), indent=2)
 print(f"[zcode] registry updated to {ver}")
 EOF
@@ -32,25 +33,17 @@ EOF
 
 install_grok() {
   echo "[grok] AGENTS.md (managed contract block) → ~/.grok/AGENTS.md"
-  # Prefer the repo's static contract copy — works for customers without a
-  # local engine checkout. Falls back to the live renderer on our host so the
-  # text can never drift from src/harness/contract.ts when one is present.
-  local block
-  if [ -f "$ROOT/grok/valorbrain-contract.md" ]; then
-    block="$(cat "$ROOT/grok/valorbrain-contract.md")"
-  elif [ -d "$ENGINE/src/harness" ]; then
-    block="$(bun -e '
-      const { renderContractBody, BLOCK_BEGIN, BLOCK_END } = await import("/opt/valorbrain/src/harness/contract.ts");
-      const body = renderContractBody({ harnessId: "grok", harnessName: "Grok", hasHooks: false, toolPrefix: "" });
-      process.stdout.write(`${BLOCK_BEGIN}\n${body}${BLOCK_END}\n`);
-    ')"
-  else
-    echo "[grok] no contract source available" >&2
+  # The static contract copy ships in this repo (grok/valorbrain-contract.md),
+  # so the installer has no engine dependency. When the contract text changes
+  # upstream, regenerate the file from the engine renderer and commit it.
+  if [ ! -f "$ROOT/grok/valorbrain-contract.md" ]; then
+    echo "[grok] grok/valorbrain-contract.md missing from this repo" >&2
     return 1
   fi
-  python3 - "$HOME/.grok/AGENTS.md" "$block" <<'EOF'
+  python3 - "$HOME/.grok/AGENTS.md" "$ROOT/grok/valorbrain-contract.md" <<'EOF'
 import sys, os
-path, block = sys.argv[1], sys.argv[2]
+path, contract_path = sys.argv[1], sys.argv[2]
+block = open(contract_path).read()
 BEGIN, END = "<!-- valorbrain:begin -->", "<!-- valorbrain:end -->"
 existing = open(path).read() if os.path.exists(path) else ""
 start, end = existing.find(BEGIN), existing.find(END)
