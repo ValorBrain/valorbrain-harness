@@ -32,25 +32,39 @@ EOF
 
 install_grok() {
   echo "[grok] AGENTS.md (managed contract block) → ~/.grok/AGENTS.md"
-  bun -e '
-    const { renderContractBody, BLOCK_BEGIN, BLOCK_END } = await import("/opt/valorbrain/src/harness/contract.ts");
-    const body = renderContractBody({ harnessId: "grok", harnessName: "Grok", hasHooks: false, toolPrefix: "" });
-    const block = `${BLOCK_BEGIN}\n${body}${BLOCK_END}\n`;
-    const path = "/root/.grok/AGENTS.md";
-    const existing = await Bun.file(path).text().catch(() => "");
-    const start = existing.indexOf(BLOCK_BEGIN);
-    const end = existing.indexOf(BLOCK_END);
-    let out;
-    if (start !== -1 && end > start) {
-      out = existing.slice(0, start) + block + existing.slice(end + BLOCK_END.length);
-    } else {
-      out = existing + (existing && !existing.endsWith("\n") ? "\n\n" : "") + block;
-    }
-    await Bun.write(path, out);
-    console.log("[grok] contract block written");
-  '
-  if ! grep -q "mcp_servers.valorbrain" "$HOME/.grok/config.toml"; then
-    echo "[grok] config.toml has no valorbrain MCP entry — see README (credential policy) and add it manually"
+  # Prefer the repo's static contract copy — works for customers without a
+  # local engine checkout. Falls back to the live renderer on our host so the
+  # text can never drift from src/harness/contract.ts when one is present.
+  local block
+  if [ -f "$ROOT/grok/valorbrain-contract.md" ]; then
+    block="$(cat "$ROOT/grok/valorbrain-contract.md")"
+  elif [ -d "$ENGINE/src/harness" ]; then
+    block="$(bun -e '
+      const { renderContractBody, BLOCK_BEGIN, BLOCK_END } = await import("/opt/valorbrain/src/harness/contract.ts");
+      const body = renderContractBody({ harnessId: "grok", harnessName: "Grok", hasHooks: false, toolPrefix: "" });
+      process.stdout.write(`${BLOCK_BEGIN}\n${body}${BLOCK_END}\n`);
+    ')"
+  else
+    echo "[grok] no contract source available" >&2
+    return 1
+  fi
+  python3 - "$HOME/.grok/AGENTS.md" "$block" <<'EOF'
+import sys, os
+path, block = sys.argv[1], sys.argv[2]
+BEGIN, END = "<!-- valorbrain:begin -->", "<!-- valorbrain:end -->"
+existing = open(path).read() if os.path.exists(path) else ""
+start, end = existing.find(BEGIN), existing.find(END)
+if start != -1 and end > start:
+    out = existing[:start] + block + existing[end + len(END):]
+else:
+    sep = "" if not existing or existing.endswith("\n\n") else ("\n" if existing.endswith("\n") else "\n\n")
+    out = existing + sep + block
+os.makedirs(os.path.dirname(path), exist_ok=True)
+open(path, "w", newline="\n").write(out)
+print("[grok] contract block written")
+EOF
+  if ! grep -q "mcp_servers.valorbrain" "$HOME/.grok/config.toml" 2>/dev/null; then
+    echo "[grok] config.toml has no valorbrain MCP entry — copy the right mode from grok/mcp.example.toml (never commit real tokens)"
   else
     echo "[grok] MCP entry present in config.toml"
   fi

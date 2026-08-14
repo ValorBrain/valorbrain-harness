@@ -1,0 +1,18 @@
+# ValorBrain MCP for Grok — example, tenant-neutral.
+#
+# Two modes. NEVER commit real tokens to this repo: each tenant installs with
+# its own credentials (self-hosted env block, or a hosted vbm_ token via the
+# connect client).
+#
+# ── Mode A: self-hosted engine on this machine ──────────────────────────────
+# [mcp_servers.valorbrain]
+# command = "/path/to/valorbrain"
+# args = ["mcp"]
+# env = { VALORBRAIN_SOURCE_AGENT = "grok", POSTGRES_HOST = "<db-host>", POSTGRES_PORT = "<db-port>", POSTGRES_DATABASE = "<db-name>", VALORBRAIN_DEFAULT_TENANT_ID = "<tenant-uuid>", POSTGRES_USER = "<db-user>", VALORBRAIN_API_TOKEN = "<api-token>", POSTGRES_PASSWORD = "<db-password>" }
+#
+# ── Mode B: hosted (customer with a vbm_ token) ─────────────────────────────
+# Runs the @valorbrain/connect client as the MCP command; the token decides
+# the tenant — no tenant id anywhere in the config.
+# [mcp_servers.valorbrain]
+# command = "npx"
+# args = ["-y", "@valorbrain/connect", "mcp", "--token=vbm_YOUR_TOKEN_HERE"]
