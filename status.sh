@@ -32,9 +32,17 @@ grep -q "memory_used" "$ZC/$reg_ver/hooks/user-prompt-submit" 2>/dev/null \
 
 # Grok: managed block + MCP entry
 note "── grok ──"
-grep -q "valorbrain:begin" "$HOME/.grok/AGENTS.md" 2>/dev/null \
-  && ok "grok AGENTS.md contract block present" \
-  || drift "grok AGENTS.md missing contract block — run ./install.sh grok"
+if grep -q "valorbrain:begin" "$HOME/.grok/AGENTS.md" 2>/dev/null; then
+  installed_v="$(grep -oE "valorbrain-contract: v[0-9]+" "$HOME/.grok/AGENTS.md" | head -1 | grep -oE "[0-9]+")"
+  repo_v="$(grep -oE "valorbrain-contract: v[0-9]+" "$ROOT/grok/valorbrain-contract.md" | head -1 | grep -oE "[0-9]+")"
+  if [ "$installed_v" = "$repo_v" ] && [ -n "$installed_v" ]; then
+    ok "grok AGENTS.md contract v$installed_v (== repo)"
+  else
+    drift "grok contract drift: installed v${installed_v:-none} vs repo v${repo_v} — run ./install.sh grok"
+  fi
+else
+  drift "grok AGENTS.md missing contract block — run ./install.sh grok"
+fi
 grep -q "mcp_servers.valorbrain" "$HOME/.grok/config.toml" 2>/dev/null \
   && ok "grok MCP server registered" \
   || drift "grok config.toml missing [mcp_servers.valorbrain]"
