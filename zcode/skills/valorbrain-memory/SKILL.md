@@ -167,15 +167,15 @@ Tools como `reindex`, `import_docs`, `vault_sync`, `build_graphs`, `lifecycle_sw
 
 Tools são expostas por **toolset do token** (`agent` · `graph` · `ops`; tokens existentes = todas). Use preferencialmente os nomes **canônicos** — os aliases (seta →) estão **deprecated** e serão removidos após janela de 14 dias de uso zero.
 
-### agent (29 canônicas)
-`memory_retrieve`, `memory_prepare`, `working_context`, `memory_grep`, `get`, `multi_get`, `keyed_facts_as_of`, `upsert_keyed_fact`, `memory_store`, `memory_used`, `assert_authority_correction`, `memory_curate`, `memory_forget`, `append_entity_card`, `diary`, `scratchpad`, `task_state`, `team_handoff`, `team_message`, `team_inbox`, `team_notify_human`, `team_briefing`, `team_roster`, `profile`, `whoami`, `memory_health`, `notifications`, `record_lesson`, `list_lessons`
+### agent (30 canônicas)
+`memory_retrieve`, `memory_prepare`, `working_context`, `memory_grep`, `get`, `multi_get`, `keyed_facts_as_of`, `upsert_keyed_fact`, `memory_store`, `memory_used`, `assert_authority_correction`, `memory_curate`, `memory_forget`, `append_entity_card`, `diary`, `scratchpad`, `task_state`, `episodes` (action: list/get), `team_handoff`, `team_message`, `team_inbox`, `team_notify_human`, `team_briefing`, `team_roster`, `profile`, `whoami`, `memory_health`, `notifications`, `record_lesson`, `list_lessons`
 
-*Aliases deprecated:* `memory_pin`/`memory_snooze`→`memory_curate` · `diary_read`/`diary_write`→`diary` · `set_goal`/`report_progress`→`task_state` · `team_handoff_consume`→`team_handoff` · `notifications_check`/`notifications_mark_read`→`notifications`
+*Aliases deprecated:* `memory_pin`/`memory_snooze`→`memory_curate` · `diary_read`/`diary_write`→`diary` · `set_goal`/`report_progress`→`task_state` · `get_memory_episode`/`list_memory_episodes`→`episodes` · `team_handoff_consume`→`team_handoff` · `notifications_check`/`notifications_mark_read`→`notifications`
 
-### graph (15 canônicas)
-`timeline`, `find_similar`, `ripple_rag_retrieve`, `decisions` (action: record/list/similar/trace/relate), `kg_query`, `kg_explain`, `kg_quarantine` (action: list/approve/reject), `find_causal_links`, `memory_evolution_status`, `provenance` (action: trace/export), `conflicts` (action: detect/list/resolve), `memory_arcs`, `episodes`, `kg_entity_resolve_report`, `list_entity_cards`
+### graph (14 canônicas)
+`timeline`, `find_similar`, `ripple_rag_retrieve`, `decisions` (action: record/list/similar/trace/relate), `kg_query`, `kg_explain`, `kg_quarantine` (action: list/approve/reject), `find_causal_links`, `memory_evolution_status`, `provenance` (action: trace/export), `conflicts` (action: detect/list/resolve), `memory_arcs`, `kg_entity_resolve_report`, `list_entity_cards`
 
-*Aliases deprecated:* `record_decision`/`list_decisions`/`trace_decision_chain`/`find_similar_decisions`/`add_decision_relation`→`decisions` · `list_kg_quarantine`/`approve_kg_quarantine`/`reject_kg_quarantine`→`kg_quarantine` · `trace_lineage`/`export_provenance`→`provenance` · `detect_conflicts`/`list_conflicts`/`resolve_conflict`→`conflicts` · `create_memory_arc`/`list_arcs`/`list_memory_arcs`→`memory_arcs` · `get_memory_episode`/`list_memory_episodes`→`episodes`
+*Aliases deprecated:* `record_decision`/`list_decisions`/`trace_decision_chain`/`find_similar_decisions`/`add_decision_relation`→`decisions` · `list_kg_quarantine`/`approve_kg_quarantine`/`reject_kg_quarantine`→`kg_quarantine` · `trace_lineage`/`export_provenance`→`provenance` · `detect_conflicts`/`list_conflicts`/`resolve_conflict`→`conflicts` · `create_memory_arc`/`list_arcs`/`list_memory_arcs`→`memory_arcs`
 
 ### ops (16 canônicas)
 `lifecycle_status`, `lifecycle_sweep`, `lifecycle_restore`, `operations` (action: status/list/cancel), `feedback` (action: submit/check), `list_proposals`, `store`, `reindex`, `index_stats`, `import_docs`, `export_docs`, `vault_sync`, `list_vaults`, `beads_sync`, `build_graphs`, `usage_report`
