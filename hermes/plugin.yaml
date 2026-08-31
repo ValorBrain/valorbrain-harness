@@ -1,0 +1,10 @@
+name: valorbrain
+version: 1.3.0
+description: "ValorBrain — hosted hybrid memory with composite scoring, graph traversal, and lifecycle management. Requires the valorbrain binary or a reachable valorbrain serve endpoint."
+external_dependencies:
+  - name: valorbrain
+    install: "Provided by Valor Digital (contact gustavo@valor.digital)"
+    check: "valorbrain --version"
+hooks:
+  - on_session_end
+  - on_pre_compress

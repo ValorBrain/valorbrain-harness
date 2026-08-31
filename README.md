@@ -47,12 +47,13 @@ args = ["-y", "@valorbrain/connect", "--token=vbm_YOUR_TOKEN_HERE"]
 |---|---|---|
 | **ZCode** | Plugin: per-prompt recall, bootstrap, write reminders, skill | `./install.sh zcode` or marketplace `valor-digital` → `valorbrain` |
 | **Grok** | Global rules (`~/.grok/AGENTS.md`) + MCP example | `./install.sh grok` + [`grok/mcp.example.toml`](./grok/mcp.example.toml) |
-| **Hermes** | Native MemoryProvider (self-hosted) | Copies `src/hermes/` from an engine checkout (`VALORBRAIN_ENGINE_DIR`). Hosted: use MCP above. |
-| **OpenClaw** | `memory` slot plugin (self-hosted) | Needs an engine checkout to build. Hosted: use MCP above. |
+| **Hermes** | Native MemoryProvider (self-hosted) | `./install.sh hermes` (plugin is vendored; no engine checkout) |
+| **OpenClaw** | `memory` slot plugin (self-hosted) | `./install.sh openclaw` (bundled dist is vendored; no engine checkout) |
 | **Claude Code / Cursor / Codex / …** | MCP HTTP or stdio | See [docs.valor.digital/docs/integrations](https://docs.valor.digital/docs/integrations) |
 
-Hermes and OpenClaw installers still assume `VALORBRAIN_ENGINE_DIR` (default
-`/opt/valorbrain`). On a machine that is not ours, use the hosted MCP path.
+Hermes and OpenClaw plugins are **vendored** in this repo. Refresh them after
+an engine change with `scripts/vendor-from-engine.sh`. Hosted customers can
+skip both and use MCP via `@valorbrain/connect`.
 
 ## The quality loop
 

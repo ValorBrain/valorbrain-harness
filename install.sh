@@ -5,7 +5,6 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-ENGINE="${VALORBRAIN_ENGINE_DIR:-/opt/valorbrain}"
 TARGET="${1:-all}"
 
 install_zcode() {
@@ -64,20 +63,26 @@ EOF
 }
 
 install_hermes() {
-  echo "[hermes] engine src/hermes → ~/.hermes/plugins/valorbrain"
-  cp "$ENGINE/src/hermes/__init__.py" "$ENGINE/src/hermes/plugin.yaml" "$HOME/.hermes/plugins/valorbrain/"
+  echo "[hermes] vendored plugin → ~/.hermes/plugins/valorbrain"
+  if [[ ! -f "$ROOT/hermes/plugin.yaml" ]]; then
+    echo "[hermes] hermes/ missing from this repo — run scripts/vendor-from-engine.sh on a machine with the engine" >&2
+    return 1
+  fi
+  mkdir -p "$HOME/.hermes/plugins/valorbrain"
+  cp "$ROOT/hermes/__init__.py" "$ROOT/hermes/plugin.yaml" "$HOME/.hermes/plugins/valorbrain/"
   rm -rf "$HOME/.hermes/plugins/valorbrain/__pycache__"
   echo "[hermes] deployed (restart Hermes runtime to reload)"
 }
 
 install_openclaw() {
-  echo "[openclaw] rebuilding dist from engine src/openclaw"
-  local tmp
-  tmp="$(mktemp -d)"
-  (cd "$ENGINE" && bun build src/openclaw/index.ts --outdir "$tmp" --target node >/dev/null)
-  cp "$tmp/index.js" "$HOME/.openclaw/extensions/valorbrain/dist/index.js"
-  cp "$ENGINE"/src/openclaw/*.ts "$HOME/.openclaw/extensions/valorbrain/"
-  rm -rf "$tmp"
+  echo "[openclaw] vendored dist → ~/.openclaw/extensions/valorbrain"
+  if [[ ! -f "$ROOT/openclaw/dist/index.js" ]]; then
+    echo "[openclaw] openclaw/dist missing — run scripts/vendor-from-engine.sh on a machine with the engine" >&2
+    return 1
+  fi
+  mkdir -p "$HOME/.openclaw/extensions/valorbrain/dist"
+  cp "$ROOT/openclaw/dist/index.js" "$HOME/.openclaw/extensions/valorbrain/dist/index.js"
+  cp "$ROOT/openclaw/openclaw.plugin.json" "$HOME/.openclaw/extensions/valorbrain/" 2>/dev/null || true
   echo "[openclaw] deployed"
 }
 

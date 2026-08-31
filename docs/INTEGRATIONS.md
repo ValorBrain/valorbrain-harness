@@ -55,24 +55,23 @@ Per-client steps: https://docs.valor.digital/docs/integrations
 
 ## Hermes
 
-Native MemoryProvider plugin (Python). **Self-hosted** copy from an engine
-checkout (`VALORBRAIN_ENGINE_DIR`, default `/opt/valorbrain`):
+Native MemoryProvider plugin (Python). Vendored in `hermes/` — no engine
+checkout on the target machine:
 
 ```bash
 ./install.sh hermes
 ```
 
-That path does not work on a stranger's machine without the engine tree.
 Hosted Hermes: MCP via `@valorbrain/connect`, same as any other client.
 
 Activate with `memory.provider: valorbrain` in `~/.hermes/config.yaml`.
 
 ## OpenClaw
 
-**Self-hosted** plugin build from the engine tree:
+Vendored bundled dist in `openclaw/dist` — no engine or bun on the target:
 
 ```bash
 ./install.sh openclaw
 ```
 
-Same caveat as Hermes. Hosted: MCP via `@valorbrain/connect`.
+Hosted: MCP via `@valorbrain/connect`.

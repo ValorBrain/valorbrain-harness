@@ -1,0 +1,9 @@
+{
+  "name": "valorbrain-openclaw-plugin",
+  "version": "0.10.2",
+  "description": "OpenClaw plugin adapter for ValorBrain — on-device hybrid memory layer",
+  "type": "module",
+  "openclaw": {
+    "extensions": ["./index.ts"]
+  }
+}
