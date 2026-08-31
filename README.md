@@ -4,80 +4,79 @@
 > agents stop re-learning what your team already knows — decisions, facts,
 > incidents, sessions — with retrieval that cites its sources.
 
-This repository is the **integration hub for agent harnesses** (CLIs and
-agent runtimes). Everything here is what you need to point a harness at
-ValorBrain: installers, rule files, plugins and templates — one per harness,
-all tenant-neutral (you bring your own credentials; nothing of ours ships
-here).
+This repository is the **integration hub for agent harnesses**. Installers,
+rule files, plugins and templates — tenant-neutral. You bring credentials;
+nothing of ours ships here.
 
-## Install by harness
+**Hosted product docs:** https://docs.valor.digital  
+**CLI (published):** `npx @valorbrain/cli help --json` — that JSON is the
+command contract. There is no `setup harness` subcommand.
 
-| Harness | What you get | Install |
-|---|---|---|
-| **ZCode** | Plugin: per-prompt memory recall, session bootstrap, write reminders, quality-loop skill | Marketplace `valor-digital` → `valorbrain`, or see [`zcode/`](./zcode) |
-| **Claude Code** | MCP tools + always-on rules + lifecycle hooks (auto context injection) | `valorbrain setup harness claude-code` |
-| **Codex** | MCP tools + always-on rules | `valorbrain setup harness codex` |
-| **Kiro** | MCP tools + steering rules + hooks | `valorbrain setup harness kiro` |
-| **OpenCode** | MCP tools + instructions + context-injection plugin | `valorbrain setup harness opencode` |
-| **Gemini CLI** | MCP tools + rules | `valorbrain setup harness gemini-cli` |
-| **Cursor** | MCP tools + rules | `valorbrain setup harness cursor` |
-| **Hermes** | Native MemoryProvider plugin (bootstrap + per-turn recall) | Ship `src/hermes/` from the engine repo → `~/.hermes/plugins/valorbrain` |
-| **OpenClaw** | `memory` slot plugin (per-turn injection + end-of-session extraction) | `valorbrain setup openclaw` |
-| **Grok** | Global rules (`~/.grok/AGENTS.md`) + MCP server config | [`grok/`](./grok) templates + `./install.sh grok` |
+## Hosted (start here)
 
-`valorbrain` is the engine CLI (self-hosted). On the hosted service you get an
-MCP endpoint and a `vbm_…` token instead — see **Modes** below.
+No engine on your laptop. Mint a key, then point MCP at the hosted server.
 
-## Modes
+```bash
+npx @valorbrain/cli init --agent --agent-caller grok
+```
 
-**Hosted (recommended to start)** — no engine to run. Your harness talks to
-the hosted MCP endpoint; the token identifies your tenant.
+That talks REST at `https://valorbrain-api.valor.digital` (`vb_agent_` key).
+
+MCP needs a **`vbm_`** token from the app (Settings → MCP tokens) or OAuth:
 
 ```toml
 # e.g. Grok — ~/.grok/config.toml
 [mcp_servers.valorbrain]
 command = "npx"
-args = ["-y", "@valorbrain/connect", "mcp", "--token=vbm_YOUR_TOKEN_HERE"]
+args = ["-y", "@valorbrain/connect", "--token=vbm_YOUR_TOKEN_HERE"]
 ```
 
-**Self-hosted** — you run the engine; harnesses launch it as a local MCP
-process or point at your deployment. Same rules/plugins, your infrastructure:
+`@valorbrain/connect` is the published alias of `valorbrain mcp` (stdio ↔ HTTP).
+
+## Install from this repo
+
+`./install.sh` is what exists today. It does **not** call a CLI subcommand.
 
 ```bash
-valorbrain setup harness --detect   # wires every harness found on this machine
-valorbrain setup status             # drift check: what's installed, what aged
+./install.sh zcode      # marketplace plugin files → ~/.zcode
+./install.sh grok       # managed contract in ~/.grok/AGENTS.md
+./status.sh             # drift check
 ```
 
-## The quality loop (why the rules exist)
+| Harness | What you get | Install today |
+|---|---|---|
+| **ZCode** | Plugin: per-prompt recall, bootstrap, write reminders, skill | `./install.sh zcode` or marketplace `valor-digital` → `valorbrain` |
+| **Grok** | Global rules (`~/.grok/AGENTS.md`) + MCP example | `./install.sh grok` + [`grok/mcp.example.toml`](./grok/mcp.example.toml) |
+| **Hermes** | Native MemoryProvider (self-hosted) | Copies `src/hermes/` from an engine checkout (`VALORBRAIN_ENGINE_DIR`). Hosted: use MCP above. |
+| **OpenClaw** | `memory` slot plugin (self-hosted) | Needs an engine checkout to build. Hosted: use MCP above. |
+| **Claude Code / Cursor / Codex / …** | MCP HTTP or stdio | See [docs.valor.digital/docs/integrations](https://docs.valor.digital/docs/integrations) |
 
-Every integration installs the same two-part contract:
+Hermes and OpenClaw installers still assume `VALORBRAIN_ENGINE_DIR` (default
+`/opt/valorbrain`). On a machine that is not ours, use the hosted MCP path.
 
-1. **Consult before answering** — memory is authoritative about your
-   operation; the agent's training data is not.
-2. **Declare what you used** — after answering with retrieved memory, the
-   agent calls `memory_used` with the docids it actually relied on. Used
-   memories rise in ranking, ignored ones decay, and your dashboard shows
-   *counted* utilization instead of guesswork. When the user confirms or
-   corrects a memory, the agent passes `verdict="confirmed"|"corrected"` —
-   that feeds the trust score.
+## The quality loop
 
-## Repository layout
+1. **Consult before answering** — memory is authoritative about the
+   operation; training data is not.
+2. **Declare what you used** — `memory_used` with the docids you relied on.
+   When the human confirms or corrects, pass `verdict="confirmed"|"corrected"`.
+
+## Phantom commands
+
+CI runs [`scripts/check-phantom-commands.sh`](./scripts/check-phantom-commands.sh).
+It fails if markdown cites a CLI subcommand that is not in
+`npx @valorbrain/cli help --json`. Unpublished subcommands must not return.
+
+## Layout
 
 ```
-zcode/    ZCode plugin (canonical source; published to the marketplace repo)
-grok/     Grok global rules + MCP config templates (placeholders only)
-docs/     INTEGRATIONS.md — per-harness setup details
-install.sh / status.sh   deploy + drift-check helpers
+zcode/     ZCode plugin (canonical source; published to the marketplace)
+grok/      Grok contract + MCP config templates (placeholders only)
+docs/      INTEGRATIONS.md — per-harness details
+install.sh / status.sh
+scripts/check-phantom-commands.sh
 ```
-
-## Contributing
-
-Adding a harness? The pattern is always the same: **rules file** (the
-standing instructions), **MCP entry** (the tools), and — where the harness
-supports it — **lifecycle hooks** (automatic context injection). Open an
-issue or PR with the harness name and we'll help wire it.
 
 ## License
 
-MIT — see [LICENSE](./LICENSE). The ZCode plugin carries its own MIT license
-in [`zcode/LICENSE`](./zcode/LICENSE).
+MIT — see [LICENSE](./LICENSE). ZCode plugin: [`zcode/LICENSE`](./zcode/LICENSE).

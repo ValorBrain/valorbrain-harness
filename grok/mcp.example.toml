@@ -15,4 +15,4 @@
 # the tenant — no tenant id anywhere in the config.
 # [mcp_servers.valorbrain]
 # command = "npx"
-# args = ["-y", "@valorbrain/connect", "mcp", "--token=vbm_YOUR_TOKEN_HERE"]
+# args = ["-y", "@valorbrain/connect", "--token=vbm_YOUR_TOKEN_HERE"]

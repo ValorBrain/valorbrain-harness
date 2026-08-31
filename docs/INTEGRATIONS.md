@@ -9,14 +9,17 @@ only in where each artifact lives:
 | **Rules file** | Standing instructions: consult-first, declare usage, write-back | `CLAUDE.md` / `AGENTS.md` / steering / system prompt |
 | **Hooks** (where supported) | Automatic context injection per prompt + end-of-session extraction | harness hook system |
 
-Self-hosted installs use one command per harness via the engine CLI:
+The **published** CLI is `@valorbrain/cli` (`help --json` is the contract).
+It does **not** include `setup harness`. What this repo actually runs:
 
 ```bash
-valorbrain setup harness --detect   # install for every harness found
-valorbrain setup harness claude-code --dry-run
-valorbrain setup status             # verify + drift check
-valorbrain setup harness claude-code --remove
+./install.sh zcode|grok|hermes|openclaw|all
+./status.sh
+npx @valorbrain/cli init --agent --agent-caller <name>
+npx @valorbrain/connect --token vbm_…
 ```
+
+Hosted docs: https://docs.valor.digital/docs/integrations
 
 ## ZCode
 
@@ -25,75 +28,51 @@ recall injection, session bootstrap, post-edit write reminder, Stop-event
 handoff gate, and the `valorbrain-memory` skill. Requires a hosted MCP URL +
 `vbm_` token in the plugin's user config — the token determines the tenant.
 
-Canonical source: [`../zcode/`](../zcode) (published to the marketplace
-repository on every release).
+```bash
+./install.sh zcode
+```
 
-## Claude Code
+Canonical source: [`../zcode/`](../zcode).
 
-- MCP: `~/.claude.json` → `mcpServers.valorbrain`
-- Rules: managed block in `~/.claude/CLAUDE.md`
-- Hooks: `SessionStart`, `UserPromptSubmit`, `PreCompact`, `Stop` in
-  `~/.claude/settings.json` (context injection + decision/episode/handoff
-  extraction)
+## Grok
 
-## Codex / Gemini CLI / Cursor
+```bash
+./install.sh grok
+```
 
-MCP + managed rules block; no lifecycle hook system, so consulting memory is
-enforced by the rules text rather than injection.
+Writes the managed contract block into `~/.grok/AGENTS.md`. Copy MCP from
+[`../grok/mcp.example.toml`](../grok/mcp.example.toml) — hosted mode is
+`npx -y @valorbrain/connect --token=vbm_…`.
 
-- Codex: `~/.codex/config.toml` (`[mcp_servers.valorbrain]`, TOML) + `~/.codex/AGENTS.md`
-- Gemini CLI: `~/.gemini/settings.json` + `~/.gemini/GEMINI.md`
-- Cursor: `~/.cursor/mcp.json` + project `.cursor/rules` (user-level pickup
-  is best-effort)
+## Claude Code / Cursor / Codex / OpenCode / Gemini CLI / Kiro
 
-## Kiro
+No installer in this repo for these (yet). Use MCP:
 
-MCP (`~/.kiro/settings/mcp.json`), always-included steering
-(`~/.kiro/steering/valorbrain.md`) and JSON hooks
-(`~/.kiro/hooks/valorbrain.json`).
+- HTTP: `https://mcpbrain.valor.digital/mcp` with `Authorization: Bearer vbm_…`
+- stdio: `npx -y @valorbrain/connect --token vbm_…`
 
-## OpenCode
-
-MCP + `instructions[]` reference + an experimental lifecycle plugin
-(`chat.message` → retrieval, `experimental.chat.system.transform` →
-injection).
+Per-client steps: https://docs.valor.digital/docs/integrations
 
 ## Hermes
 
-Native MemoryProvider plugin (Python). Install from the engine repo:
+Native MemoryProvider plugin (Python). **Self-hosted** copy from an engine
+checkout (`VALORBRAIN_ENGINE_DIR`, default `/opt/valorbrain`):
 
 ```bash
-cp -r /path/to/valorbrain-engine/src/hermes ${HERMES_HOME:-~/.hermes}/plugins/valorbrain
-hermes memory list   # should list valorbrain
+./install.sh hermes
 ```
+
+That path does not work on a stranger's machine without the engine tree.
+Hosted Hermes: MCP via `@valorbrain/connect`, same as any other client.
 
 Activate with `memory.provider: valorbrain` in `~/.hermes/config.yaml`.
 
 ## OpenClaw
 
-```bash
-valorbrain setup openclaw
-```
-
-Registers the `memory` slot plugin (`before_prompt_build` context injection,
-`agent_end` extraction) and the `valorbrain_*` REST tools.
-
-## Grok
-
-Grok reads global rules from `~/.grok/AGENTS.md` and MCP servers from
-`~/.grok/config.toml`:
+**Self-hosted** plugin build from the engine tree:
 
 ```bash
-./install.sh grok   # installs the managed rules block
-# then copy the MCP section (hosted or self-hosted) from grok/mcp.example.toml
+./install.sh openclaw
 ```
 
-## Adding a new harness
-
-1. Find where its MCP config lives (that's the tools).
-2. Find the always-on instructions file (that's the rules) — render the
-   contract from the engine's `src/harness/contract.ts` so every harness
-   drifts together.
-3. If it has lifecycle hooks, wire `context-surfacing` on prompt submit and
-   the extractors on session end.
-4. Add a drift check to `status.sh` so integration age is measurable.
+Same caveat as Hermes. Hosted: MCP via `@valorbrain/connect`.
