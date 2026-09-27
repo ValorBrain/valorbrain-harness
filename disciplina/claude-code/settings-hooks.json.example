@@ -1,0 +1,7 @@
+{
+  "Stop": [
+    { "hooks": [ { "type": "command",
+        "command": "/opt/valorbrain-harness/disciplina/claude-code/valorbrain-disciplina.sh",
+        "timeout": 5, "statusMessage": "Disciplina ValorBrain: checkpoint..." } ] }
+  ]
+}
