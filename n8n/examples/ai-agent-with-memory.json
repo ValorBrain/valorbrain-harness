@@ -1,0 +1,134 @@
+{
+	"name": "ValorBrain: AI Agent with memory as a tool",
+	"nodes": [
+		{
+			"parameters": {
+				"httpMethod": "POST",
+				"path": "valorbrain-agent",
+				"responseMode": "responseNode",
+				"options": {}
+			},
+			"id": "7a1e0c4d-5b2f-4c8e-9d10-2f3a4b5c6d01",
+			"name": "Webhook",
+			"type": "n8n-nodes-base.webhook",
+			"typeVersion": 2.2,
+			"position": [0, 0],
+			"webhookId": "7a1e0c4d-5b2f-4c8e-9d10-2f3a4b5c6d01"
+		},
+		{
+			"parameters": {
+				"resource": "memory",
+				"operation": "prepare",
+				"message": "={{ $json.body.message }}",
+				"options": {
+					"fastMode": true
+				}
+			},
+			"id": "7a1e0c4d-5b2f-4c8e-9d10-2f3a4b5c6d02",
+			"name": "Prepare context",
+			"type": "n8n-nodes-valorbrain.valorBrain",
+			"typeVersion": 1,
+			"position": [220, 0]
+		},
+		{
+			"parameters": {
+				"promptType": "define",
+				"text": "={{ $('Webhook').item.json.body.message }}",
+				"options": {
+					"systemMessage": "=You are a helpful assistant. Use the memory below when it is relevant, and call the ValorBrain search tool for anything it does not cover.\n\n{{ $json.markdown }}"
+				}
+			},
+			"id": "7a1e0c4d-5b2f-4c8e-9d10-2f3a4b5c6d03",
+			"name": "AI Agent",
+			"type": "@n8n/n8n-nodes-langchain.agent",
+			"typeVersion": 3.1,
+			"position": [440, 0]
+		},
+		{
+			"parameters": {
+				"model": {
+					"__rl": true,
+					"mode": "list",
+					"value": "gpt-4.1-mini"
+				},
+				"options": {}
+			},
+			"id": "7a1e0c4d-5b2f-4c8e-9d10-2f3a4b5c6d04",
+			"name": "OpenAI Chat Model",
+			"type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+			"typeVersion": 1.3,
+			"position": [360, 220]
+		},
+		{
+			"parameters": {
+				"descriptionType": "manual",
+				"toolDescription": "Search the team memory for earlier work, decisions and facts. Give precise words as the query.",
+				"resource": "memory",
+				"operation": "search",
+				"query": "={{ $fromAI('query', 'The words to look up in memory', 'string') }}",
+				"options": {
+					"limit": 8
+				}
+			},
+			"id": "7a1e0c4d-5b2f-4c8e-9d10-2f3a4b5c6d05",
+			"name": "Search ValorBrain",
+			"type": "n8n-nodes-valorbrain.valorBrainTool",
+			"typeVersion": 1,
+			"position": [600, 220]
+		},
+		{
+			"parameters": {
+				"resource": "memory",
+				"operation": "writeDocument",
+				"collection": "n8n-conversations",
+				"path": "=conversations/{{ $execution.id }}.md",
+				"content": "=User: {{ $('Webhook').item.json.body.message }}\n\nAssistant: {{ $json.output }}",
+				"eventAt": "={{ $now.toISO() }}",
+				"additionalFields": {
+					"title": "=Conversation {{ $execution.id }}",
+					"contentType": "transcript",
+					"runId": "={{ $execution.id }}"
+				}
+			},
+			"id": "7a1e0c4d-5b2f-4c8e-9d10-2f3a4b5c6d06",
+			"name": "Write the exchange",
+			"type": "n8n-nodes-valorbrain.valorBrain",
+			"typeVersion": 1,
+			"position": [800, 0]
+		},
+		{
+			"parameters": {
+				"respondWith": "json",
+				"responseBody": "={{ { answer: $('AI Agent').item.json.output } }}",
+				"options": {}
+			},
+			"id": "7a1e0c4d-5b2f-4c8e-9d10-2f3a4b5c6d07",
+			"name": "Respond to Webhook",
+			"type": "n8n-nodes-base.respondToWebhook",
+			"typeVersion": 1.5,
+			"position": [1020, 0]
+		}
+	],
+	"connections": {
+		"Webhook": {
+			"main": [[{ "node": "Prepare context", "type": "main", "index": 0 }]]
+		},
+		"Prepare context": {
+			"main": [[{ "node": "AI Agent", "type": "main", "index": 0 }]]
+		},
+		"OpenAI Chat Model": {
+			"ai_languageModel": [[{ "node": "AI Agent", "type": "ai_languageModel", "index": 0 }]]
+		},
+		"Search ValorBrain": {
+			"ai_tool": [[{ "node": "AI Agent", "type": "ai_tool", "index": 0 }]]
+		},
+		"AI Agent": {
+			"main": [[{ "node": "Write the exchange", "type": "main", "index": 0 }]]
+		},
+		"Write the exchange": {
+			"main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]]
+		}
+	},
+	"settings": { "executionOrder": "v1" },
+	"pinData": {}
+}
