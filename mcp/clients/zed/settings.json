@@ -1,0 +1,10 @@
+{
+  "context_servers": {
+    "valorbrain": {
+      "url": "https://mcpbrain.valor.digital/mcp",
+      "headers": {
+        "X-Source-Agent": "zed"
+      }
+    }
+  }
+}

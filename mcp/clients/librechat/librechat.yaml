@@ -1,0 +1,15 @@
+mcpServers:
+  valorbrain:
+    type: streamable-http
+    url: https://mcpbrain.valor.digital/mcp
+    title: ValorBrain
+    description: Shared company memory for agents (retrieve, store, hand off).
+    requiresOAuth: false
+    headers:
+      Authorization: "Bearer {{VALORBRAIN_MCP_TOKEN}}"
+      X-Source-Agent: librechat
+    customUserVars:
+      VALORBRAIN_MCP_TOKEN:
+        title: ValorBrain MCP token
+        description: "Your vbm_ token: valorbrain.valor.digital, Settings, MCP tokens."
+        sensitive: true

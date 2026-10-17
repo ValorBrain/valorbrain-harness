@@ -1,113 +1,86 @@
 {
   "id": "valorbrain",
+  "name": "ValorBrain",
+  "description": "Hosted team memory for OpenClaw: recall before every turn, optional transcript capture, memory tools. HTTP only.",
+  "version": "0.1.0",
   "kind": "memory",
   "activation": {
-    "onCapabilities": ["hook", "tool"]
-  },
-  "uiHints": {
-    "valorbrainBin": {
-      "label": "ValorBrain Binary Path",
-      "placeholder": "/usr/local/bin/valorbrain",
-      "help": "Path to valorbrain binary. Auto-detected from PATH if not set."
-    },
-    "tokenBudget": {
-      "label": "Context Token Budget",
-      "placeholder": "800",
-      "help": "Max tokens for context surfacing injection (default: 800)"
-    },
-    "profile": {
-      "label": "Retrieval Profile",
-      "help": "speed (400 tokens) | balanced (800) | deep (1200)"
-    },
-    "enableTools": {
-      "label": "Register Agent Tools",
-      "help": "Register ValorBrain retrieval tools for agent-initiated queries"
-    },
-    "servePort": {
-      "label": "REST API Port",
-      "placeholder": "7438",
-      "help": "Port for ValorBrain HTTP REST API (used by tools)",
-      "advanced": true
-    },
-    "gpuEmbed": {
-      "label": "Embedding Endpoint",
-      "placeholder": "http://localhost:8088",
-      "help": "URL for granite-embed embedding service",
-      "advanced": true
-    },
-    "gpuLlm": {
-      "label": "LLM Endpoint",
-      "placeholder": "http://localhost:8089",
-      "help": "URL for ValorBrain LLM (query expansion, extraction)",
-      "advanced": true
-    },
-    "gpuLlmModel": {
-      "label": "LLM Model",
-      "placeholder": "qwen3",
-      "help": "Model name sent to the configured LLM endpoint",
-      "advanced": true
-    },
-    "gpuLlmReasoningEffort": {
-      "label": "Reasoning Effort",
-      "placeholder": "(unset)",
-      "help": "Optional top-level reasoning_effort for Chat Completions endpoints that support it. Unset omits the field.",
-      "advanced": true
-    },
-    "gpuLlmNoThink": {
-      "label": "Append /no_think",
-      "help": "Append /no_think to remote LLM prompts (default: true). Disable for standard OpenAI models.",
-      "advanced": true
-    },
-    "gpuRerank": {
-      "label": "Reranker Endpoint",
-      "placeholder": "http://localhost:8090",
-      "help": "URL for reranking service",
-      "advanced": true
-    }
+    "onCapabilities": [
+      "hook",
+      "tool"
+    ]
   },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
-      "valorbrainBin": {
+      "apiUrl": {
         "type": "string"
       },
-      "tokenBudget": {
-        "type": "number",
-        "minimum": 100,
-        "maximum": 4000
+      "token": {
+        "type": "string"
       },
-      "profile": {
-        "type": "string",
-        "enum": ["speed", "balanced", "deep"]
-      },
-      "enableTools": {
+      "recall": {
         "type": "boolean"
       },
-      "servePort": {
-        "type": "number",
-        "minimum": 1024,
-        "maximum": 65535
-      },
-      "gpuEmbed": {
-        "type": "string"
-      },
-      "gpuLlm": {
-        "type": "string"
-      },
-      "gpuLlmModel": {
-        "type": "string"
-      },
-      "gpuLlmReasoningEffort": {
-        "type": "string",
-        "enum": ["none", "minimal", "low", "medium", "high", "xhigh"]
-      },
-      "gpuLlmNoThink": {
+      "captureTranscript": {
         "type": "boolean"
       },
-      "gpuRerank": {
-        "type": "string"
+      "tools": {
+        "type": "boolean"
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 500,
+        "maximum": 30000
+      },
+      "captureTimeoutMs": {
+        "type": "integer",
+        "minimum": 5000,
+        "maximum": 600000
       }
+    }
+  },
+  "contracts": {
+    "tools": [
+      "valorbrain_search",
+      "valorbrain_get",
+      "valorbrain_store"
+    ]
+  },
+  "uiHints": {
+    "apiUrl": {
+      "label": "ValorBrain API URL",
+      "placeholder": "https://valorbrain-api.valor.digital",
+      "help": "REST base of the engine. Default: the hosted API. Point it at your own engine if you run one."
+    },
+    "token": {
+      "label": "ValorBrain token",
+      "placeholder": "vbm_…",
+      "help": "Personal token (vbm_). Leave empty to read VALORBRAIN_API_TOKEN from the gateway's environment.",
+      "sensitive": true
+    },
+    "recall": {
+      "label": "Recall before every turn",
+      "help": "Sends the cleaned, redacted user message to ValorBrain and injects the memory it returns (default on)."
+    },
+    "captureTranscript": {
+      "label": "Send conversation for extraction",
+      "help": "Uploads the cleaned, redacted conversation so ValorBrain extracts decisions and episodes (default off). Also needs hooks.allowConversationAccess."
+    },
+    "tools": {
+      "label": "Memory tools",
+      "help": "Registers valorbrain_search, valorbrain_get and valorbrain_store (default on)."
+    },
+    "timeoutMs": {
+      "label": "Recall timeout (ms)",
+      "placeholder": "4000",
+      "advanced": true
+    },
+    "captureTimeoutMs": {
+      "label": "Extraction timeout (ms)",
+      "placeholder": "180000",
+      "advanced": true
     }
   }
 }

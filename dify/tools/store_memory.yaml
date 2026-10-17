@@ -1,0 +1,160 @@
+identity:
+  name: store_memory
+  author: valorbrain
+  label:
+    en_US: Store memory
+    pt_BR: Gravar memória
+description:
+  human:
+    en_US: Save one typed memory (note, decision, observation, problem, milestone, handoff or lesson) in ValorBrain. It becomes searchable in a few seconds.
+    pt_BR: Grava uma memória tipada (nota, decisão, observação, problema, marco, handoff ou lição) no ValorBrain. Ela fica buscável em poucos segundos.
+  llm: Save one piece of durable knowledge to long-term memory in ValorBrain, such as a decision, a preference, a fact or a lesson that should be remembered in later conversations. Do not store chat logs or secrets.
+parameters:
+  - name: title
+    type: string
+    required: true
+    form: llm
+    label:
+      en_US: Title
+      pt_BR: Título
+    human_description:
+      en_US: A short title, at least 5 characters.
+      pt_BR: Um título curto, com pelo menos 5 caracteres.
+    llm_description: A short title for the memory, at least 5 characters.
+  - name: content
+    type: string
+    required: true
+    form: llm
+    label:
+      en_US: Content
+      pt_BR: Conteúdo
+    human_description:
+      en_US: The memory itself, at least 20 characters.
+      pt_BR: A memória em si, com pelo menos 20 caracteres.
+    llm_description: The information to remember, written as complete sentences that make sense without the conversation around them. At least 20 characters.
+  - name: type
+    type: select
+    required: false
+    form: llm
+    default: note
+    label:
+      en_US: Type
+      pt_BR: Tipo
+    human_description:
+      en_US: The kind of memory. Empty means note.
+      pt_BR: O tipo de memória. Vazio significa nota.
+    llm_description: The kind of memory. decision for a choice someone made, observation for a fact, problem for an open issue, lesson for something learned, milestone for finished work, handoff for work that someone else continues, note for anything else.
+    options:
+      - value: note
+        label:
+          en_US: Note
+          pt_BR: Nota
+      - value: decision
+        label:
+          en_US: Decision
+          pt_BR: Decisão
+      - value: observation
+        label:
+          en_US: Observation
+          pt_BR: Observação
+      - value: problem
+        label:
+          en_US: Problem
+          pt_BR: Problema
+      - value: lesson
+        label:
+          en_US: Lesson
+          pt_BR: Lição
+      - value: milestone
+        label:
+          en_US: Milestone
+          pt_BR: Marco
+      - value: handoff
+        label:
+          en_US: Handoff
+          pt_BR: Handoff
+  - name: scope
+    type: select
+    required: false
+    form: form
+    default: token
+    label:
+      en_US: Scope
+      pt_BR: Escopo
+    human_description:
+      en_US: Which collection receives the memory. "Token default" uses the token's own collection. "Collection field" uses Collection. "Dify end user" gives each person who uses the app a separate collection.
+      pt_BR: Qual coleção recebe a memória. "Padrão do token" usa a coleção do próprio token. "Campo Coleção" usa Coleção. "Usuário final do Dify" dá a cada pessoa que usa o app uma coleção separada.
+    options:
+      - value: token
+        label:
+          en_US: Token default
+          pt_BR: Padrão do token
+      - value: collection
+        label:
+          en_US: Collection field
+          pt_BR: Campo Coleção
+      - value: dify_user
+        label:
+          en_US: Dify end user
+          pt_BR: Usuário final do Dify
+  - name: collection
+    type: string
+    required: false
+    form: form
+    label:
+      en_US: Collection
+      pt_BR: Coleção
+    human_description:
+      en_US: The collection name when Scope is "Collection field" (in a workflow you can insert a variable). When Scope is "Dify end user", the prefix of the per-user collection (empty means dify-user).
+      pt_BR: O nome da coleção quando o Escopo é "Campo Coleção" (num workflow dá para inserir uma variável). Quando o Escopo é "Usuário final do Dify", o prefixo da coleção por usuário (vazio significa dify-user).
+    placeholder:
+      en_US: support-team
+  - name: tags
+    type: string
+    required: false
+    form: form
+    label:
+      en_US: Tags
+      pt_BR: Tags
+    human_description:
+      en_US: Optional comma-separated tags. The plugin always adds the tag "dify".
+      pt_BR: Tags opcionais separadas por vírgula. O plugin sempre acrescenta a tag "dify".
+    placeholder:
+      en_US: customer, onboarding
+  - name: confidence
+    type: number
+    required: false
+    form: form
+    min: 0
+    max: 1
+    label:
+      en_US: Confidence
+      pt_BR: Confiança
+    human_description:
+      en_US: Optional confidence from 0 to 1. Empty lets ValorBrain choose.
+      pt_BR: Confiança opcional de 0 a 1. Vazio deixa o ValorBrain escolher.
+  - name: redact_secrets
+    type: boolean
+    required: false
+    form: form
+    default: true
+    label:
+      en_US: Redact secrets
+      pt_BR: Ocultar segredos
+    human_description:
+      en_US: Replace obvious keys and tokens (vbm_, sk-, ghp_, AKIA, Bearer, JWT, KEY=value, private keys) with [redacted] before sending.
+      pt_BR: Troca chaves e tokens óbvios (vbm_, sk-, ghp_, AKIA, Bearer, JWT, CHAVE=valor, chaves privadas) por [redacted] antes de enviar.
+  - name: fail_open
+    type: boolean
+    required: false
+    form: form
+    default: true
+    label:
+      en_US: Continue when ValorBrain is down
+      pt_BR: Seguir quando o ValorBrain cair
+    human_description:
+      en_US: When ValorBrain cannot be reached, times out, or answers 429 or 5xx, return a "not stored" message instead of failing the run. Settings errors always fail.
+      pt_BR: Quando o ValorBrain não responde, estoura o tempo ou devolve 429 ou 5xx, devolve uma mensagem de "não gravado" em vez de falhar a execução. Erro de configuração sempre falha.
+extra:
+  python:
+    source: tools/store_memory.py

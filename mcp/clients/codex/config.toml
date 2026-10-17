@@ -1,0 +1,4 @@
+[mcp_servers.valorbrain]
+url = "https://mcpbrain.valor.digital/mcp"
+bearer_token_env_var = "VALORBRAIN_MCP_TOKEN"
+http_headers = { "X-Source-Agent" = "codex" }

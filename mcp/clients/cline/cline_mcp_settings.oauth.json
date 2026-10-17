@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "valorbrain": {
+      "type": "streamableHttp",
+      "url": "https://mcpbrain.valor.digital/mcp",
+      "headers": {
+        "X-Source-Agent": "cline"
+      },
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}

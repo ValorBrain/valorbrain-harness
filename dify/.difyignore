@@ -1,0 +1,35 @@
+# Byte code and caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environments and local settings (never package credentials)
+.env
+.env.*
+*.env
+.env.example
+.venv/
+venv/
+
+# Editors and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+.github/
+
+# Built packages, so a package never contains an older one
+*.difypkg
+
+# Development files that the runtime does not need
+tests/
+scripts/
+PUBLISHING.md
+uv.lock
+.difyignore

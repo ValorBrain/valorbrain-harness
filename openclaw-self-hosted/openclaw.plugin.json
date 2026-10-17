@@ -1,0 +1,113 @@
+{
+  "id": "valorbrain",
+  "kind": "memory",
+  "activation": {
+    "onCapabilities": ["hook", "tool"]
+  },
+  "uiHints": {
+    "valorbrainBin": {
+      "label": "ValorBrain Binary Path",
+      "placeholder": "/usr/local/bin/valorbrain",
+      "help": "Path to valorbrain binary. Auto-detected from PATH if not set."
+    },
+    "tokenBudget": {
+      "label": "Context Token Budget",
+      "placeholder": "800",
+      "help": "Max tokens for context surfacing injection (default: 800)"
+    },
+    "profile": {
+      "label": "Retrieval Profile",
+      "help": "speed (400 tokens) | balanced (800) | deep (1200)"
+    },
+    "enableTools": {
+      "label": "Register Agent Tools",
+      "help": "Register ValorBrain retrieval tools for agent-initiated queries"
+    },
+    "servePort": {
+      "label": "REST API Port",
+      "placeholder": "7438",
+      "help": "Port for ValorBrain HTTP REST API (used by tools)",
+      "advanced": true
+    },
+    "gpuEmbed": {
+      "label": "Embedding Endpoint",
+      "placeholder": "http://localhost:8088",
+      "help": "URL for granite-embed embedding service",
+      "advanced": true
+    },
+    "gpuLlm": {
+      "label": "LLM Endpoint",
+      "placeholder": "http://localhost:8089",
+      "help": "URL for ValorBrain LLM (query expansion, extraction)",
+      "advanced": true
+    },
+    "gpuLlmModel": {
+      "label": "LLM Model",
+      "placeholder": "qwen3",
+      "help": "Model name sent to the configured LLM endpoint",
+      "advanced": true
+    },
+    "gpuLlmReasoningEffort": {
+      "label": "Reasoning Effort",
+      "placeholder": "(unset)",
+      "help": "Optional top-level reasoning_effort for Chat Completions endpoints that support it. Unset omits the field.",
+      "advanced": true
+    },
+    "gpuLlmNoThink": {
+      "label": "Append /no_think",
+      "help": "Append /no_think to remote LLM prompts (default: true). Disable for standard OpenAI models.",
+      "advanced": true
+    },
+    "gpuRerank": {
+      "label": "Reranker Endpoint",
+      "placeholder": "http://localhost:8090",
+      "help": "URL for reranking service",
+      "advanced": true
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "valorbrainBin": {
+        "type": "string"
+      },
+      "tokenBudget": {
+        "type": "number",
+        "minimum": 100,
+        "maximum": 4000
+      },
+      "profile": {
+        "type": "string",
+        "enum": ["speed", "balanced", "deep"]
+      },
+      "enableTools": {
+        "type": "boolean"
+      },
+      "servePort": {
+        "type": "number",
+        "minimum": 1024,
+        "maximum": 65535
+      },
+      "gpuEmbed": {
+        "type": "string"
+      },
+      "gpuLlm": {
+        "type": "string"
+      },
+      "gpuLlmModel": {
+        "type": "string"
+      },
+      "gpuLlmReasoningEffort": {
+        "type": "string",
+        "enum": ["none", "minimal", "low", "medium", "high", "xhigh"]
+      },
+      "gpuLlmNoThink": {
+        "type": "boolean"
+      },
+      "gpuRerank": {
+        "type": "string"
+      }
+    }
+  }
+}

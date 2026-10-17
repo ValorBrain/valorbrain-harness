@@ -1,0 +1,23 @@
+name: valorbrain
+repo: https://github.com/ValorBrain/valorbrain-cli
+sha: dba280261334420fea55b18b21215998444460a2
+subdir: packages/hermes-plugin
+version: "1.11.0"
+title: ValorBrain
+description: "ValorBrain memory provider: recall before each turn from a hybrid (BM25 + vector + graph) memory shared with the user's other agents, lifecycle hooks and memory tools, against the hosted ValorBrain API or a self-hosted engine. Maintained by Valor Digital. Disclosure — in hosted mode (VALORBRAIN_HOOKS_MODE=hosted) the plugin sends to the ValorBrain API at VALORBRAIN_ENGINE_URL (valorbrain-api.valor.digital for the hosted service) under the user's vbm_ token: each turn's user message as the recall query (VALORBRAIN_SEND_PROMPT=off stops it), the arguments of the valorbrain_* tools the model calls, the paths of files the agent's tools touch (to attach file context to tool results), and a runtime registration with the machine's hostname, plugin version and a random install id, refreshed every 5 minutes by a background thread while Hermes runs; the session transcript (every user and assistant message) is sent at session end and before compression only when VALORBRAIN_SEND_TRANSCRIPT=on, off by default. Self-hosted mode runs a local valorbrain binary instead and can start it as a child process (VALORBRAIN_SERVE_MODE=managed). The plugin reads ~/.valorbrain/connect.json for those two switches and the install id, never for credentials. When @valorbrain/connect's launcher is installed (~/.valorbrain/bin/connect) and node or bun is on PATH, hosted mode starts `launcher.mjs heal --harness=hermes` in the background when the API names a newer client or every 6 hours, and that launcher may rewrite the plugin files. In messaging-gateway sessions every user of the bot is served with the one configured token, so recall and writes land in that person's memory: use it only on a bot that serves its token's owner."
+maintainer: ValorBrain
+tier: community
+category: memory
+requires_hermes: ">=0.20"
+docs_url: https://github.com/ValorBrain/valorbrain-cli/tree/dba280261334420fea55b18b21215998444460a2/packages/hermes-plugin#readme
+platforms: [linux, macos]
+known_issues:
+  - "Messaging-gateway sessions are served with the configured token for every user of the bot; use one vbm_ token per person and do not enable it on a shared bot."
+capabilities:
+  provides_tools: []
+  provides_hooks:
+  - on_session_end
+  - on_pre_compress
+  provides_middleware:
+  - tool_execution
+  requires_env: []

@@ -1,0 +1,65 @@
+{
+	"name": "n8n-nodes-valorbrain",
+	"version": "0.1.0",
+	"description": "ValorBrain is durable memory for AI agents. This n8n node stores memories, writes dated documents, prepares context for a prompt, searches and forgets.",
+	"license": "MIT",
+	"homepage": "https://github.com/ValorBrain/valorbrain-harness/tree/main/n8n#readme",
+	"keywords": [
+		"n8n-community-node-package",
+		"n8n",
+		"valorbrain",
+		"memory",
+		"ai-agent",
+		"rag",
+		"search"
+	],
+	"author": {
+		"name": "Valor Digital",
+		"email": "comercial@valor.digital",
+		"url": "https://valorbrain.com.br"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/ValorBrain/valorbrain-harness.git",
+		"directory": "n8n"
+	},
+	"bugs": {
+		"url": "https://github.com/ValorBrain/valorbrain-harness/issues"
+	},
+	"scripts": {
+		"build": "n8n-node build",
+		"build:watch": "tsc --watch",
+		"dev": "n8n-node dev",
+		"lint": "n8n-node lint",
+		"lint:fix": "n8n-node lint --fix",
+		"test": "n8n-node build && node --test test/valorbrain.test.cjs",
+		"test:live": "n8n-node build && node --test test/live.test.cjs",
+		"release": "n8n-node release",
+		"prepublishOnly": "n8n-node prerelease",
+		"scan": "node scripts/scan.mjs"
+	},
+	"files": [
+		"dist",
+		"!dist/tsconfig.tsbuildinfo"
+	],
+	"n8n": {
+		"n8nNodesApiVersion": 1,
+		"strict": true,
+		"credentials": [
+			"dist/credentials/ValorBrainApi.credentials.js"
+		],
+		"nodes": [
+			"dist/nodes/ValorBrain/ValorBrain.node.js"
+		]
+	},
+	"devDependencies": {
+		"@n8n/node-cli": "0.52.5",
+		"eslint": "9.32.0",
+		"prettier": "3.6.2",
+		"release-it": "^21.1.0",
+		"typescript": "5.9.2"
+	},
+	"peerDependencies": {
+		"n8n-workflow": "*"
+	}
+}

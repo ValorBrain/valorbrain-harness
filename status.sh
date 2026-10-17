@@ -19,7 +19,7 @@ note "── engine-managed harnesses (valorbrain setup status) ──"
 note "── zcode ──"
 ZC="$HOME/.zcode/cli/plugins/cache/valor-digital/valorbrain"
 reg_ver="$(python3 -c "import json;print(next((p['version'] for p in json.load(open('$HOME/.zcode/cli/plugins/installed_plugins.json'))['plugins'] if p['id']=='valorbrain@valor-digital'),'none'))" 2>/dev/null)"
-src_ver="$(python3 -c "import json;print(json.load(open('/opt/valorbrain-harness/zcode/.zcode-plugin/plugin.json'))['version'])" 2>/dev/null)"
+src_ver="$(python3 -c "import json;print(json.load(open('$ROOT/zcode/.zcode-plugin/plugin.json'))['version'])" 2>/dev/null)"
 dep_ver="$(python3 -c "import json;print(json.load(open('$ZC/$reg_ver/.zcode-plugin/plugin.json'))['version'])" 2>/dev/null)"
 if [ "$reg_ver" = "$src_ver" ] && [ "$dep_ver" = "$src_ver" ]; then
   ok "zcode v$src_ver (registry=cache=source)"
@@ -47,21 +47,27 @@ grep -q "mcp_servers.valorbrain" "$HOME/.grok/config.toml" 2>/dev/null \
   && ok "grok MCP server registered" \
   || drift "grok config.toml missing [mcp_servers.valorbrain]"
 
-# Hermes: installed == engine source
+# Hermes: installed == this repo's vendored copy (hermes/VENDORED_FROM names the canonical source)
 note "── hermes ──"
-if diff -q /opt/valorbrain/src/hermes/__init__.py "$HOME/.hermes/plugins/valorbrain/__init__.py" >/dev/null 2>&1; then
-  ok "hermes installed == engine source"
+if diff -q "$ROOT/hermes/__init__.py" "$HOME/.hermes/plugins/valorbrain/__init__.py" >/dev/null 2>&1; then
+  ok "hermes installed == hermes/ in this repo"
 else
-  drift "hermes installed differs from engine source — run ./install.sh hermes"
+  drift "hermes installed differs from hermes/ — run ./install.sh hermes"
 fi
 grep -q "memory_used" "$HOME/.hermes/plugins/valorbrain/__init__.py" 2>/dev/null \
   && ok "hermes quality-loop instruction present" \
   || drift "hermes quality-loop instruction missing"
 
-# OpenClaw: dist contains the V3 tool
+# OpenClaw: hosted HTTP plugin (openclaw/) or the old self-hosted build (openclaw-self-hosted/)
 note "── openclaw ──"
-grep -q "valorbrain_memory_used" "$HOME/.openclaw/extensions/valorbrain/dist/index.js" 2>/dev/null \
-  && ok "openclaw memory_used tool in dist" \
-  || drift "openclaw dist stale — run ./install.sh openclaw"
+want="$(python3 -c "import json;print(json.load(open('$ROOT/openclaw/package.json'))['version'])" 2>/dev/null)"
+have="$(sed -n 's/.*PLUGIN_VERSION = "\(.*\)".*/\1/p' "$HOME/.openclaw/extensions/valorbrain/dist/version.js" 2>/dev/null)"
+if [[ -n "$have" && "$have" == "$want" ]]; then
+  ok "openclaw hosted plugin $have"
+elif grep -q "valorbrain_memory_used" "$HOME/.openclaw/extensions/valorbrain/dist/index.js" 2>/dev/null; then
+  ok "openclaw self-hosted build (openclaw-self-hosted/)"
+else
+  drift "openclaw plugin missing or stale — run ./install.sh openclaw"
+fi
 
 exit $fail

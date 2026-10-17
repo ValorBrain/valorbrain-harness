@@ -1,0 +1,10 @@
+repo: https://github.com/ValorBrain/valorbrain-cli
+path: packages/hermes-plugin
+commit: dba280261334420fea55b18b21215998444460a2
+commit_date: 2026-10-16T15:15:14-03:00
+plugin_version: 1.11.0
+synced_at: 2026-10-17
+# sha256 of each vendored file (relative to hermes/):
+a2cf19e2cda52da08484e6e4c4b29910014f9afb9736c3d48b1e815d37ffd29d  __init__.py
+3d3a5430b2c8bb1b4e2a61bdeaa222cc982095d661995666a466978e2b713e2a  plugin.yaml
+b9ab228f77d14b2e84b2532599375f17afaa6c38bd9052f876b89a371f7040dc  tests/test_run_kind.py

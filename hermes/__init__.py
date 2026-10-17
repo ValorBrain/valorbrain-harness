@@ -1,17 +1,28 @@
 """ValorBrain memory provider plugin for Hermes Agent.
 
-On-device hybrid memory with composite scoring, graph traversal, and
-lifecycle management. Integrates via REST API (tools) and CLI shell-out
-(lifecycle hooks).
+Hybrid memory with composite scoring, graph traversal, and lifecycle
+management. Tools go through the REST API; lifecycle hooks run either on the
+hosted engine (REST) or through a local `valorbrain` binary (self-hosted).
 
-Requires:
-  - valorbrain binary on PATH (or configured via VALORBRAIN_BIN)
-  - valorbrain serve running (or managed mode starts it automatically)
+Hosted (default path for customers):
+  VALORBRAIN_HOOKS_MODE=hosted + VALORBRAIN_ENGINE_URL + a `vbm_` VALORBRAIN_API_TOKEN.
+  The plugin never runs a local binary, even if one is on PATH or VALORBRAIN_BIN is set:
+  every lifecycle hook goes to `POST /api/v1/hooks/run`, REST never falls back to
+  127.0.0.1:VALORBRAIN_SERVE_PORT, and the tenant/user come from the token (no
+  X-Tenant-ID / X-User-ID header).
+
+Self-hosted (VALORBRAIN_HOOKS_MODE unset or "self-hosted"):
+  valorbrain binary on PATH (or VALORBRAIN_BIN) runs the hooks; without a binary the
+  hooks go to VALORBRAIN_ENGINE_URL when set. valorbrain serve running (or managed mode).
 
 Config via environment variables:
-  VALORBRAIN_BIN           — Path to valorbrain binary (default: auto-detect on PATH)
-  VALORBRAIN_SERVE_PORT    — REST API port (default: 7438)
-  VALORBRAIN_SERVE_MODE    — "external" (default) or "managed" (plugin starts/stops serve)
+  VALORBRAIN_HOOKS_MODE    — "hosted" or "self-hosted" (default: self-hosted). Where the
+                             lifecycle hooks run; "hosted" pins the whole plugin to the engine
+  VALORBRAIN_ENGINE_URL    — REST base of the engine (alias: VALORBRAIN_API_URL)
+  VALORBRAIN_API_TOKEN     — bearer for the REST API (`vbm_` in hosted mode)
+  VALORBRAIN_BIN           — Path to valorbrain binary (default: auto-detect on PATH; self-hosted only)
+  VALORBRAIN_SERVE_PORT    — local REST API port (default: 7438; self-hosted only)
+  VALORBRAIN_SERVE_MODE    — "external" (default) or "managed" (plugin starts/stops serve; self-hosted only)
   VALORBRAIN_PROFILE       — Retrieval profile: speed, balanced, deep (default: balanced)
   VALORBRAIN_EMBED_URL     — GPU embedding server URL (optional)
   VALORBRAIN_LLM_URL       — GPU LLM server URL (optional)
@@ -19,6 +30,18 @@ Config via environment variables:
   VALORBRAIN_LLM_REASONING_EFFORT — Top-level reasoning_effort for supporting Chat Completions endpoints (optional)
   VALORBRAIN_LLM_NO_THINK  — Append /no_think to remote prompts; false disables it for standard OpenAI models (optional)
   VALORBRAIN_RERANK_URL    — GPU reranker server URL (optional)
+
+What leaves the machine (PRD decision 18):
+  VALORBRAIN_SEND_PROMPT     — "off" stops sending the prompt of each turn: no per-turn
+                               recall (hook and REST fallback). Default on. Also:
+                               `npx -y @valorbrain/connect --harness hermes --prompt off`.
+  VALORBRAIN_SEND_TRANSCRIPT — hosted engine only: "on" uploads the session transcript to
+                               the extraction hooks (decisions, handoff, compaction).
+                               Default OFF: without it the transcript is neither written
+                               nor sent, and those hooks do not run. Also:
+                               `npx -y @valorbrain/connect --harness hermes --transcript on`.
+  The variable wins over the choice saved in ~/.valorbrain/connect.json (harnesses.hermes).
+  Self-hosted (local binary) keeps the transcript on the machine and always writes it.
 
 Agent-context isolation:
   Hermes ``run_agent.py`` passes ``agent_context`` to ``initialize()``
@@ -30,6 +53,15 @@ Agent-context isolation:
   write-side surfaces (transcript appends in ``sync_turn``, extraction
   in ``on_session_end`` and ``on_pre_compress``) through a primary-only
   guard. Non-primary contexts get retrieval but no vault writes.
+
+Run kind (ADR-084, ``X-Run-Kind``):
+  A ``cron`` ``agent_context`` and a oneshot/cron/batch/kanban/api session
+  source send ``X-Run-Kind: routine``, a ``webhook`` source ``pipeline``, so
+  the engine keeps that output out of other agents' feeds; a person's session
+  sends none (the engine infers ``conversation``), nor do subagent, flush,
+  tool or a2a (pieces of another run). An explicit ``VALORBRAIN_RUN_KIND``
+  (conversation, routine or pipeline) always wins. ``VALORBRAIN_REQUESTED_BY`` and
+  ``VALORBRAIN_AGENT_TEAM`` go out as ``X-Requested-By`` / ``X-Agent-Team``.
 """
 
 from __future__ import annotations
@@ -49,18 +81,359 @@ from agent.memory_provider import MemoryProvider
 logger = logging.getLogger(__name__)
 
 _DEFAULT_PORT = 7438
+
+# Versão do contrato que este plugin implementa. Manter em sincronia com
+# CONTRACT_VERSION em src/harness/contract.ts — tests/unit/hermes-plugin.test.ts
+# falha se divergir. Vai no capabilities do register/heartbeat: é o que permite
+# medir a adoção do contrato por harness (agent_runtimes.contract_declared_at).
+_CONTRACT_VERSION = "8"
+
+# Versão do pacote do plugin (plugin.yaml do catálogo do Hermes). O teste
+# tests/unit/hermes-plugin.test.ts falha se divergir do manifest.
+_PLUGIN_VERSION = "1.11.0"
+
+# Teto do transcript enviado ao engine no caminho hospedado (o servidor corta em
+# 8MB; cortamos antes para não empurrar payload grande por nada).
+_HOOK_TRANSCRIPT_MAX_BYTES = 8 * 1024 * 1024
 _HOOK_TIMEOUT = 30  # seconds — fast hooks (bootstrap, lifecycle)
 _CONTEXT_SURFACING_TIMEOUT = 90  # seconds — retrieval hook can take ~60s on bench tenants
 _REST_TIMEOUT = 5.0  # seconds
 
+_FLAG_ON = ("on", "1", "true", "yes")
+_FLAG_OFF = ("off", "0", "false", "no")
+
+
+def _privacy_flag(env_name: str, key: str, default: bool) -> bool:
+    """One of the "what leaves the machine" switches (decision 18 of the PRD).
+
+    The env var wins; then the `hermes` entry of ~/.valorbrain/connect.json,
+    written by `npx -y @valorbrain/connect --harness hermes --prompt|--transcript`;
+    then the default. Read on every use so a change applies on the next turn.
+    """
+    raw = (os.environ.get(env_name) or "").strip().lower()
+    if raw in _FLAG_ON:
+        return True
+    if raw in _FLAG_OFF:
+        return False
+    try:
+        with open(Path.home() / ".valorbrain" / "connect.json", "r") as fh:
+            data = json.load(fh)
+        entry = ((data or {}).get("harnesses") or {}).get("hermes") or {}
+        value = entry.get(key) if isinstance(entry, dict) else None
+    except Exception:
+        value = None
+    return value if isinstance(value, bool) else default
+
+
+# ---------------------------------------------------------------------------
+# Identidade do cliente e auto-atualização (contrato "hooks que evoluem", C e D)
+# ---------------------------------------------------------------------------
+
+# Disparo do heal por tempo: o mesmo throttle do connect.
+_HEAL_INTERVAL_S = 6 * 60 * 60
+# Quantos pins já disparados o plugin lembra (um disparo por pin visto).
+_HEAL_PIN_MEMORY = 8
+# Rotas que levam os cabeçalhos D (contrato D).
+_CLIENT_HEADER_PATHS = ("/api/v1/hooks/run", "/api/v1/runtimes/register")
+
+_plugin_state_lock = threading.Lock()
+_own_install_id: Optional[str] = None
+_warned_no_launcher = False
+# Filhos do heal ficam referenciados: o Popen coletado com o processo vivo só
+# geraria ResourceWarning — o heal é destacado e ninguém espera por ele.
+_heal_children: list = []
+# Throttle do heal também na memória: com o estado não gravável, o arquivo
+# não segura nada e cada resposta dispararia um heal.
+_heal_mem: dict = {}
+_warned_state_unwritable = False
+
+
+def _is_install_id(value: Any) -> bool:
+    """`install_id` do contrato: 32 hex minúsculos, aleatório, sem PII."""
+    return (
+        isinstance(value, str) and len(value) == 32
+        and all(c in "0123456789abcdef" for c in value)
+    )
+
+
+def _plugin_state_path() -> Path:
+    """Estado do próprio plugin (0600). O connect lê `install_id` daqui na migração."""
+    return Path.home() / ".hermes" / "valorbrain-plugin-state.json"
+
+
+def _read_plugin_state() -> dict:
+    try:
+        with open(_plugin_state_path(), "r") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _salvage_install_id() -> Optional[str]:
+    """Estado corrompido mas com o id legível: guarda o id (senão o engine
+    veria uma instalação nova e duplicada)."""
+    import re
+    try:
+        raw = _plugin_state_path().read_text(errors="replace")
+    except Exception:
+        return None
+    m = re.search(r'"install_id"\s*:\s*"([0-9a-f]{32})"', raw)
+    return m.group(1) if m else None
+
+
+def _write_plugin_state(state: dict) -> bool:
+    global _warned_state_unwritable
+    path = _plugin_state_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            json.dump(state, fh)
+        os.replace(str(tmp), str(path))
+        return True
+    except Exception as e:
+        if not _warned_state_unwritable:
+            _warned_state_unwritable = True
+            logger.info("valorbrain: plugin state not writable (%s); keeping it in memory", e)
+        return False
+
+
+def _install_id() -> str:
+    """install_id do contrato D: a entrada `hermes` do connect.json; sem ela, o
+    do próprio plugin (gerado uma vez). O connect.json nunca é escrito daqui."""
+    global _own_install_id
+    try:
+        with open(Path.home() / ".valorbrain" / "connect.json", "r") as fh:
+            data = json.load(fh)
+        entry = ((data or {}).get("harnesses") or {}).get("hermes") or {}
+        value = entry.get("install_id") if isinstance(entry, dict) else None
+        if _is_install_id(value):
+            return value
+    except Exception:
+        pass
+    with _plugin_state_lock:
+        if _own_install_id:
+            return _own_install_id
+        state = _read_plugin_state()
+        if _is_install_id(state.get("install_id")):
+            _own_install_id = state["install_id"]
+            return _own_install_id
+        salvaged = _salvage_install_id()
+        if salvaged:
+            logger.info("valorbrain: plugin state unreadable; kept its install_id")
+            _own_install_id = salvaged
+            state["install_id"] = salvaged
+            _write_plugin_state(state)
+            return _own_install_id
+        import secrets
+        _own_install_id = secrets.token_hex(16)
+        state["install_id"] = _own_install_id
+        _write_plugin_state(state)
+        return _own_install_id
+
+
+def _client_headers() -> dict:
+    """Cabeçalhos D: quem é o cliente, para o engine registrar o que observa."""
+    try:
+        return {
+            "X-ValorBrain-Client": f"hermes-plugin/{_PLUGIN_VERSION}",
+            "X-ValorBrain-Harness": "hermes",
+            "X-ValorBrain-Install": _install_id(),
+        }
+    except Exception:
+        return {}
+
+
+# ---------------------------------------------------------------------------
+# Run kind, requester and team (ADR-084)
+# ---------------------------------------------------------------------------
+
+_RUN_KINDS = ("conversation", "routine", "pipeline")
+# The engine's vocabulary (`runKindFromSignals`, src/hooks/run-authorship.ts).
+# A subagent, a flush and a tool/a2a call are pieces of another run: they
+# decide nothing.
+_ROUTINE_AGENT_CONTEXTS = frozenset({"cron"})
+# Session sources that run on their own schedule or as a one-shot call.
+_ROUTINE_SESSION_SOURCES = frozenset({"oneshot", "cron", "batch", "kanban", "api"})
+# Session sources an external system pushed.
+_PIPELINE_SESSION_SOURCES = frozenset({"webhook"})
+_REQUESTED_BY_MAX_CHARS = 120
+
+
+def _header_value(raw: Optional[str], max_chars: int = 0) -> str:
+    """Header-safe label: accents folded to ASCII ("João" → "Joao"; the engine
+    decodes header bytes as latin-1, and the HTTP client refuses non-ASCII),
+    anything else non-printable dropped, trimmed, capped at `max_chars`."""
+    import unicodedata
+    folded = unicodedata.normalize("NFKD", raw or "")
+    v = "".join(c for c in folded if " " <= c <= "~").strip()
+    if max_chars:
+        v = v[:max_chars].strip()
+    return v
+
+
+def _explicit_run_kind() -> str:
+    v = (os.environ.get("VALORBRAIN_RUN_KIND") or "").strip().lower()
+    return v if v in _RUN_KINDS else ""
+
+
+def _run_kind(agent_context: str, session_source: str) -> str:
+    """The run kind this session declares: VALORBRAIN_RUN_KIND when valid, then
+    `pipeline` for a webhook source, `routine` for a cron context or a
+    oneshot/cron/batch/kanban/api source; '' otherwise."""
+    explicit = _explicit_run_kind()
+    if explicit:
+        return explicit
+    source = (session_source or "").strip().lower()
+    if source in _PIPELINE_SESSION_SOURCES:
+        return "pipeline"
+    if (agent_context or "").strip().lower() in _ROUTINE_AGENT_CONTEXTS:
+        return "routine"
+    if source in _ROUTINE_SESSION_SOURCES:
+        return "routine"
+    return ""
+
+
+def _attribution_headers(run_kind: str = "") -> dict:
+    """X-Run-Kind (the explicit env wins over `run_kind`), X-Requested-By and
+    X-Agent-Team, each only when known."""
+    headers: dict = {}
+    kind = _explicit_run_kind() or (run_kind if run_kind in _RUN_KINDS else "")
+    if kind:
+        headers["X-Run-Kind"] = kind
+    requested_by = _header_value(os.environ.get("VALORBRAIN_REQUESTED_BY"), _REQUESTED_BY_MAX_CHARS)
+    if requested_by:
+        headers["X-Requested-By"] = requested_by
+    team = _header_value(os.environ.get("VALORBRAIN_AGENT_TEAM"))
+    if team:
+        headers["X-Agent-Team"] = team
+    return headers
+
+
+def _heal_reason(state: dict, pin: Any, current: Any, now: float) -> Optional[str]:
+    """Por que disparar o heal: um pin anunciado diferente do launcher
+    instalado (uma vez por pin) ou 6 h desde o último disparo; senão None."""
+    healed = state.get("healed_pins") if isinstance(state.get("healed_pins"), list) else []
+    if isinstance(pin, str) and pin and pin != current and pin not in healed:
+        return "pin"
+    last = state.get("last_heal_at")
+    if not isinstance(last, (int, float)) or now - last >= _HEAL_INTERVAL_S:
+        return "interval"
+    return None
+
+
+def _record_heal(state: dict, reason: str, pin: Any, now: float) -> dict:
+    nxt = dict(state)
+    nxt["last_heal_at"] = now
+    if reason == "pin" and isinstance(pin, str):
+        seen = [p for p in (nxt.get("healed_pins") or []) if isinstance(p, str) and p != pin]
+        nxt["healed_pins"] = (seen + [pin])[-_HEAL_PIN_MEMORY:]
+    return nxt
+
+
+def _merge_heal(file_state: dict, mem: dict) -> dict:
+    """O estado do arquivo com o throttle da memória por cima: vale o disparo
+    mais recente e a união dos pins já disparados."""
+    out = dict(file_state)
+    last_f, last_m = file_state.get("last_heal_at"), mem.get("last_heal_at")
+    nums = [v for v in (last_f, last_m) if isinstance(v, (int, float))]
+    if nums:
+        out["last_heal_at"] = max(nums)
+    pins = [p for p in (file_state.get("healed_pins") or []) if isinstance(p, str)]
+    pins += [p for p in (mem.get("healed_pins") or []) if isinstance(p, str) and p not in pins]
+    if pins:
+        out["healed_pins"] = pins[-_HEAL_PIN_MEMORY:]
+    return out
+
+
+def _maybe_heal(response: Any) -> None:
+    """Auto-atualização (contrato C). Com `node` (ou `bun`) no PATH e o launcher
+    do connect instalado, um pin novo na resposta ou 6 h disparam
+    `launcher.mjs heal --harness=hermes`, destacado: o connect reescreve o
+    plugin a partir do manifesto assinado e o Hermes carrega a versão nova no
+    próximo início. Sem runtime ou sem launcher, nada: o plugin segue
+    reportando a versão (o engine o mostra como atrasado). Só no modo
+    hospedado (VALORBRAIN_HOOKS_MODE=hosted): um plugin self-hosted contra um
+    engine remoto não recebe o manifesto hospedado."""
+    global _warned_no_launcher, _heal_mem
+    if not _hosted_mode():
+        return
+    try:
+        pin = None
+        if isinstance(response, dict) and isinstance(response.get("client_pin"), dict):
+            pin = response["client_pin"].get("version")
+        connect_dir = Path.home() / ".valorbrain" / "bin" / "connect"
+        try:
+            with open(connect_dir / "current.json", "r") as fh:
+                current = (json.load(fh) or {}).get("version")
+        except Exception:
+            current = None
+        now = time.time()
+        with _plugin_state_lock:
+            state = _merge_heal(_read_plugin_state(), _heal_mem)
+            reason = _heal_reason(state, pin, current, now)
+            if not reason:
+                return
+            launcher = connect_dir / "launcher.mjs"
+            runtime = shutil.which("node") or shutil.which("bun")
+            if not runtime or not launcher.is_file():
+                if not _warned_no_launcher:
+                    _warned_no_launcher = True
+                    logger.info(
+                        "valorbrain: auto-update skipped (%s) — run: npx -y @valorbrain/connect --harness hermes",
+                        "no node/bun on PATH" if not runtime else "no launcher at ~/.valorbrain/bin/connect",
+                    )
+                return
+            # Recolhe os que já terminaram (poll() lê o código de saída).
+            _heal_children[:] = [c for c in _heal_children if c.poll() is None]
+            _heal_children.append(subprocess.Popen(
+                [runtime, str(launcher), "heal", "--harness=hermes"],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                start_new_session=True, close_fds=True,
+            ))
+            nxt = _record_heal(state, reason, pin, now)
+            _heal_mem = {"last_heal_at": nxt["last_heal_at"], "healed_pins": list(nxt.get("healed_pins") or [])}
+            _write_plugin_state(nxt)
+        logger.info("valorbrain: auto-update heal spawned (%s%s)", reason, f" pin={str(pin)[:32]}" if reason == "pin" else "")
+    except Exception as e:
+        logger.debug("valorbrain: auto-update heal failed: %s", e)
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Where the lifecycle hooks run. "hosted" = always on the engine via REST, never a
+# local binary; anything else (unset included) = self-hosted: binary first, then
+# the engine when VALORBRAIN_ENGINE_URL is set. Explicit because the binary on PATH
+# used to decide alone: a hosted install on a machine that also had the engine
+# binary (the engine host itself) silently ran self-hosted.
+_HOOKS_MODE_ENV = "VALORBRAIN_HOOKS_MODE"
+_HOOKS_MODE_HOSTED = "hosted"
+_HOOKS_MODE_SELF_HOSTED = "self-hosted"
+
+
+def _hosted_mode() -> bool:
+    """VALORBRAIN_HOOKS_MODE=hosted. Read on every use, like the privacy flags."""
+    return (os.environ.get(_HOOKS_MODE_ENV) or "").strip().lower() == _HOOKS_MODE_HOSTED
+
+
+def _engine_url() -> Optional[str]:
+    """REST base of the engine from VALORBRAIN_ENGINE_URL (or VALORBRAIN_API_URL)."""
+    url = os.environ.get("VALORBRAIN_ENGINE_URL") or os.environ.get("VALORBRAIN_API_URL")
+    return url.rstrip("/") if url else None
+
+
 def _find_valorbrain_bin() -> Optional[str]:
     """Find the valorbrain binary. Check env (VALORBRAIN_BIN, then CLAWMEM_BIN
-    for backward compat), then PATH. Falls back to legacy `clawmem` name."""
+    for backward compat), then PATH. Falls back to legacy `clawmem` name.
+
+    Hosted mode never has a binary: every `self._bin` comes from here, so this is
+    the single gate that keeps hosted from shelling out (hooks and managed serve).
+    """
+    if _hosted_mode():
+        return None
     for env_name in ("VALORBRAIN_BIN", "CLAWMEM_BIN"):
         env_bin = os.environ.get(env_name)
         if env_bin and os.path.isfile(env_bin) and os.access(env_bin, os.X_OK):
@@ -75,6 +448,26 @@ def _slugify_agent(name: str) -> str:
     s = "".join(c for c in s if not unicodedata.combining(c))
     s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
     return (s[:64] if s else "agent")
+
+
+def _session_source(platform: str) -> str:
+    """Hermes' label for who drives this session (``agent/session_source.py``):
+    ``oneshot`` for ``hermes chat -q``/``-z``, ``cron``, ``telegram``, ``cli``, ...
+
+    The engine's decision extractor writes a keyed fact only from a person's
+    session (FB-0205, ``src/hooks/run-authorship.ts``); this is the signal that
+    tells a one-shot run, whose "user" turn is somebody's program, from a chat.
+    A Hermes without the helper gets the same rule over the env it reads.
+    """
+    try:
+        from agent.session_source import session_source_for  # type: ignore[import-not-found]
+        return str(session_source_for(platform) or "")
+    except Exception:
+        pass
+    source = (os.environ.get("HERMES_SESSION_SOURCE") or "").strip()
+    if os.environ.get("HERMES_SINGLE_QUERY_SESSION") == "1" and not source and (platform or "cli") == "cli":
+        return "oneshot"
+    return source or platform or ""
 
 
 def _resolve_source_agent() -> str:
@@ -163,46 +556,197 @@ def _run_hook(bin_path: str, hook_name: str, hook_input: dict,
         return None
 
 
-def _engine_base_url(port: int) -> str:
-    """Remote engine URL when set; otherwise local valorbrain serve."""
-    url = os.environ.get("VALORBRAIN_ENGINE_URL") or os.environ.get("VALORBRAIN_API_URL")
+def _engine_base_url(port: int) -> Optional[str]:
+    """Remote engine URL when set; otherwise local valorbrain serve.
+
+    Hosted mode has no local fallback: without VALORBRAIN_ENGINE_URL it is None
+    (the call fails as a config error) instead of hitting 127.0.0.1:<port>.
+    """
+    url = _engine_url()
     if url:
-        return url.rstrip("/")
+        return url
+    if _hosted_mode():
+        return None
     return f"http://127.0.0.1:{port}"
+
+
+def _runtime_seed() -> Optional[str]:
+    """Semente estável da chave de runtime.
+
+    Tenant quando houver; senão o prefixo do token (modo hospedado: o engine
+    deriva o tenant do bearer e o prefixo já aparece no dashboard). Sem nenhum
+    dos dois não há o que registrar. No modo hospedado só o token conta: o
+    VALORBRAIN_TENANT_ID do host do engine não identifica este cliente.
+    """
+    token = (os.environ.get("VALORBRAIN_API_TOKEN") or "").strip()
+    if _hosted_mode():
+        return token[:12] if token else None
+    tenant_id = (
+        os.environ.get("VALORBRAIN_TENANT_ID")
+        or os.environ.get("VALORBRAIN_DEFAULT_TENANT_ID")
+    )
+    if tenant_id:
+        return tenant_id
+    return token[:12] if token else None
+
+
+def _error_kind(status: int) -> str:
+    """Status HTTP → família de causa. O resto é 'http'."""
+    if status == 401:
+        return "unauthorized"
+    if status == 403:
+        return "forbidden"
+    if status == 404:
+        return "not_found"
+    return "http"
+
+
+def _rest_actionable_error(kind: str, detail: str, url: str = "",
+                           status: Optional[int] = None) -> str:
+    """Mensagem que o agente pode agir, não o rótulo que sobrou (FB-0100).
+
+    O relato era "ValorBrain REST API unreachable" com o MCP funcionando ao
+    lado: o texto não dizia se faltava token, se a rota mudou ou se o engine
+    estava fora do ar — e o agente que não sabe qual dos três é não tem o que
+    corrigir. Aqui cada caso vira instrução.
+    """
+    if kind == "unauthorized":
+        return (
+            "ValorBrain REST recusou a chamada (401): sem VALORBRAIN_API_TOKEN ou "
+            "token expirado/revogado. Não é problema de rede — o engine respondeu."
+        )
+    if kind == "forbidden":
+        return (
+            "ValorBrain REST recusou a chamada (403): token sem escopo para esta "
+            "operação ou tenant fora do token. O engine respondeu; faltou permissão."
+        )
+    if kind == "not_found":
+        return (
+            f"ValorBrain REST respondeu 404 para {url or 'a rota chamada'}: a rota "
+            "não existe nesta versão do engine (verifique se o cliente está mais "
+            "antigo que o engine)."
+        )
+    if kind == "http":
+        return (
+            f"ValorBrain REST respondeu {status} em {url or 'a chamada'}: o engine "
+            f"está no ar e deu erro. Detalhe: {detail}"
+        )
+    if kind == "transport":
+        return (
+            f"ValorBrain REST inacessível em {url or f'127.0.0.1:{_DEFAULT_PORT}'}: "
+            f"{detail}. Se o engine é hospedado, VALORBRAIN_ENGINE_URL não está "
+            "apontando para ele; se é local, o processo `valorbrain serve` não está "
+            "ouvindo nessa porta."
+        )
+    return f"ValorBrain REST falhou: {detail}"
+
+
+def _rest_call_detail(port: int, method: str, path: str,
+                      body: Optional[dict] = None, timeout: float = _REST_TIMEOUT,
+                      raw: bool = False, run_kind: str = ""):
+    """`_rest_call` com o motivo da falha. Devolve (data, err).
+
+    `err` é None em sucesso; caso contrário um dict {kind, detail, url, status}:
+      transport  — ninguém respondeu (conexão recusada, DNS, timeout)
+      http       — o engine respondeu com status >= 400
+      decode     — resposta 2xx que não é JSON
+    A separação é o conserto de FB-0100: antes, 401 e 404 e recusa de conexão
+    viravam o mesmo `None` e saíam como "REST API unreachable".
+    """
+    out: list = [None]
+    data = _rest_call(port, method, path, body=body, timeout=timeout, raw=raw, _out=out, run_kind=run_kind)
+    return data, out[0]
+
+
+def _tool_call_error(err: Optional[dict]) -> str:
+    """Corpo de erro de tool a partir do detalhe da chamada REST."""
+    if not err:
+        return json.dumps({"error": "ValorBrain REST API unreachable"})
+    return json.dumps(
+        {
+            "error": _rest_actionable_error(
+                err.get("kind", "http"), err.get("detail", ""),
+                err.get("url", ""), err.get("status"),
+            ),
+            "status": err.get("status"),
+            "kind": err.get("kind"),
+        }
+    )
 
 
 def _rest_call(port: int, method: str, path: str,
                body: Optional[dict] = None, timeout: float = _REST_TIMEOUT,
-               raw: bool = False):
+               raw: bool = False, _out: Optional[list] = None, run_kind: str = ""):
     """Call the ValorBrain REST API. Parsed JSON, raw text (raw=True), or None.
 
     Multi-tenant headers:
       X-Tenant-ID    — from VALORBRAIN_TENANT_ID env (engine scopes data
                        to this tenant via RLS when running as valorbrain_app).
+                       Self-hosted only.
+      X-User-ID      — from VALORBRAIN_USER_ID env. Self-hosted only.
       X-Source-Agent — defaults to 'hermes-plugin' so the engine can attribute
                        writes to this client.
       X-Source-System — from VALORBRAIN_SOURCE_SYSTEM env, defaults 'hermes'.
+      X-Run-Kind / X-Requested-By / X-Agent-Team — `_attribution_headers`:
+                       `run_kind` is the session's (the provider passes it),
+                       VALORBRAIN_RUN_KIND wins over it.
+
+    Hosted mode (VALORBRAIN_HOOKS_MODE=hosted) sends neither X-Tenant-ID nor
+    X-User-ID: the `vbm_` token decides tenant and user. Those env vars are the
+    engine host's (an admin key's tenant); forwarding them would let a host value
+    disagree with the token, and only the platform credential honors the headers.
+
+    Com `_out` (lista de uma posição), recebe {kind, detail, url, status} no
+    lugar de None como metadado da falha — o chamador decide se usa.
     """
     headers: dict = {"Content-Type": "application/json"}
     token = os.environ.get("VALORBRAIN_API_TOKEN")
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
-    tenant_id = os.environ.get("VALORBRAIN_TENANT_ID") or os.environ.get("VALORBRAIN_DEFAULT_TENANT_ID")
-    if tenant_id:
-        headers["X-Tenant-ID"] = tenant_id
+    if not _hosted_mode():
+        tenant_id = os.environ.get("VALORBRAIN_TENANT_ID") or os.environ.get("VALORBRAIN_DEFAULT_TENANT_ID")
+        if tenant_id:
+            headers["X-Tenant-ID"] = tenant_id
 
-    user_id = os.environ.get("VALORBRAIN_USER_ID")
-    if user_id:
-        headers["X-User-ID"] = user_id
+        user_id = os.environ.get("VALORBRAIN_USER_ID")
+        if user_id:
+            headers["X-User-ID"] = user_id
 
     source_agent = _resolve_source_agent()
     headers["X-Source-Agent"] = source_agent
 
     source_system = os.environ.get("VALORBRAIN_SOURCE_SYSTEM", "hermes")
     headers["X-Source-System"] = source_system
+    headers.update(_attribution_headers(run_kind))
+
+    # Contrato D: hooks/run e runtimes/register dizem quem é o cliente.
+    if path.split("?", 1)[0] in _CLIENT_HEADER_PATHS:
+        headers.update(_client_headers())
 
     base = _engine_base_url(port)
+
+    def _fail(kind: str, detail: str, status: Optional[int] = None):
+        url = f"{base}{path}" if base else path
+        logger.debug("ValorBrain REST %s %s failed (%s/%s): %s", method, path, kind, status, detail)
+        if _out is not None:
+            _out[0] = {"kind": kind, "detail": detail, "url": url, "status": status}
+        return None
+
+    if base is None:
+        return _fail(
+            "config",
+            f"{_HOOKS_MODE_ENV}=hosted sem VALORBRAIN_ENGINE_URL: configure a base REST "
+            "do engine hospedado (o modo hospedado não usa 127.0.0.1)",
+        )
+
+    def _ok(payload_text: str):
+        if raw:
+            return payload_text
+        try:
+            return json.loads(payload_text)
+        except json.JSONDecodeError as e:
+            return _fail("decode", f"resposta 2xx que não é JSON: {e}")
 
     try:
         import httpx
@@ -219,11 +763,16 @@ def _rest_call(port: int, method: str, path: str,
         )
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
-                payload = resp.read().decode()
-                return payload if raw else json.loads(payload)
+                return _ok(resp.read().decode())
+        except urllib.error.HTTPError as e:
+            try:
+                detail = e.read().decode()[:200]
+            except Exception:
+                detail = ""
+            kind = _error_kind(e.code)
+            return _fail(kind, detail or str(e), e.code)
         except (urllib.error.URLError, Exception) as e:
-            logger.debug("ValorBrain REST %s %s failed: %s", method, path, e)
-            return None
+            return _fail("transport", str(e))
 
     try:
         client = httpx.Client(timeout=timeout)
@@ -235,11 +784,17 @@ def _rest_call(port: int, method: str, path: str,
                 json=body or {},
                 headers=headers,
             )
-        resp.raise_for_status()
-        return resp.text if raw else resp.json()
     except Exception as e:
-        logger.debug("ValorBrain REST %s %s failed: %s", method, path, e)
-        return None
+        # Antes do request: ninguém respondeu (conexão recusada, DNS, timeout).
+        return _fail("transport", f"{type(e).__name__}: {e}")
+
+    status = resp.status_code
+    if status >= 400:
+        return _fail(_error_kind(status), resp.text[:200], status)
+    try:
+        return _ok(resp.text)
+    except Exception as e:
+        return _fail("decode", f"{type(e).__name__}: {e}", status)
 
 
 def _extract_context(hook_output: str) -> str:
@@ -374,6 +929,29 @@ WORKING_CONTEXT_SCHEMA = {
     },
 }
 
+# FB-0003: o canal de feedback existia só no MCP; o namespace tipado do Hermes
+# (que fala REST) não o expunha. submit abre um FB-XXXX; check acompanha.
+FEEDBACK_SCHEMA = {
+    "name": "valorbrain_feedback",
+    "description": (
+        "Report a ValorBrain product defect (empty/wrong memory_retrieve, ranking noise, "
+        "missing capability, verified fix as praise) or track a submitted one. "
+        "Not for bugs in your own harness/CLI/editor — those belong to their projects."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "enum": ["submit", "check"], "description": "submit a new FB or check status."},
+            "title": {"type": "string", "description": "submit: short title (5-200 chars)."},
+            "description": {"type": "string", "description": "submit: what happened / expected / steps."},
+            "category": {"type": "string", "description": "submit: bug|feature|question|improvement|praise|feedback."},
+            "priority": {"type": "string", "description": "submit: low|normal|high|critical."},
+            "feedback_id": {"type": "string", "description": "check: FB-XXXX or 'all'."},
+        },
+        "required": ["action"],
+    },
+}
+
 
 # ---------------------------------------------------------------------------
 # MemoryProvider implementation
@@ -395,6 +973,11 @@ class ValorBrainProvider(MemoryProvider):
         # ("subagent", "cron", "flush") = reads OK, writes suppressed. See file
         # docstring for the ABC contract this implements.
         self._agent_context: str = "primary"
+        # Hermes session source (`_session_source`), sent with the extraction
+        # hooks so the engine can tell a person's session from a one-shot run.
+        self._session_source: str = ""
+        # X-Run-Kind this session declares (`_run_kind`); '' = not known.
+        self._run_kind: str = ""
 
         # Prefetch state (generation counter prevents stale overwrites)
         self._prefetch_result: str = ""
@@ -412,6 +995,11 @@ class ValorBrainProvider(MemoryProvider):
         self._runtime_id: Optional[str] = None
         self._last_runtime_hb: float = 0.0
 
+        # Pós-compactação: marcado em on_pre_compress, consumido no próximo
+        # prefetch (o canal de injeção do provider substitui o SessionStart
+        # matcher "compact" do Claude Code).
+        self._postcompact_pending: bool = False
+
     @property
     def name(self) -> str:
         return "valorbrain"
@@ -420,6 +1008,13 @@ class ValorBrainProvider(MemoryProvider):
 
     def get_config_schema(self) -> List[Dict[str, Any]]:
         return [
+            {
+                "key": "hooks_mode",
+                "description": "Where lifecycle hooks run: 'hosted' (always the engine via REST, never a local binary) or 'self-hosted' (local valorbrain binary first)",
+                "default": _HOOKS_MODE_SELF_HOSTED,
+                "choices": [_HOOKS_MODE_SELF_HOSTED, _HOOKS_MODE_HOSTED],
+                "env_var": _HOOKS_MODE_ENV,
+            },
             {
                 "key": "serve_port",
                 "description": "ValorBrain REST API port",
@@ -442,7 +1037,7 @@ class ValorBrainProvider(MemoryProvider):
             },
             {
                 "key": "bin_path",
-                "description": "Path to valorbrain binary (auto-detected if on PATH)",
+                "description": "Path to valorbrain binary (auto-detected if on PATH; ignored in hosted mode)",
                 "env_var": "VALORBRAIN_BIN",
             },
             {
@@ -480,14 +1075,40 @@ class ValorBrainProvider(MemoryProvider):
     # -- Core lifecycle --------------------------------------------------------
 
     def is_available(self) -> bool:
-        """Check if valorbrain binary is on PATH. No network calls."""
-        return _find_valorbrain_bin() is not None
+        """Disponível com binário local (hooks) OU engine remoto configurado.
+
+        Hospedado não tem binário `valorbrain`: com VALORBRAIN_ENGINE_URL (ou
+        VALORBRAIN_API_URL) + VALORBRAIN_API_TOKEN o provider roda tools,
+        registro e os hooks de ciclo de vida no engine. Com
+        VALORBRAIN_HOOKS_MODE=hosted só o engine conta (binário no PATH não).
+        """
+        if _find_valorbrain_bin() is not None:
+            return True
+        return _engine_url() is not None
 
     def initialize(self, session_id: str, **kwargs) -> None:
         self._bin = _find_valorbrain_bin()
-        if not self._bin:
-            logger.warning("valorbrain binary not found on PATH — provider disabled")
+        hosted = _hosted_mode()
+        if not self._bin and not self._remote_engine():
+            if hosted:
+                logger.warning(
+                    "valorbrain: %s=hosted sem VALORBRAIN_ENGINE_URL — provider disabled",
+                    _HOOKS_MODE_ENV,
+                )
+            else:
+                logger.warning("valorbrain binary not found on PATH — provider disabled")
             return
+        if hosted:
+            token = (os.environ.get("VALORBRAIN_API_TOKEN") or "").strip()
+            if not token.startswith("vbm_"):
+                logger.warning(
+                    "valorbrain: %s=hosted espera um token vbm_ em VALORBRAIN_API_TOKEN — "
+                    "o tenant vem do token e o plugin não envia X-Tenant-ID",
+                    _HOOKS_MODE_ENV,
+                )
+            logger.info("valorbrain: modo hospedado — hooks via POST /api/v1/hooks/run, sem binário local")
+        elif not self._bin:
+            logger.info("valorbrain: sem binário local — hooks via engine remoto (POST /api/v1/hooks/run)")
 
         self._session_id = session_id
         try:
@@ -497,40 +1118,48 @@ class ValorBrainProvider(MemoryProvider):
         self._serve_mode = os.environ.get("VALORBRAIN_SERVE_MODE", "external")
         self._hermes_home = kwargs.get("hermes_home", str(Path.home() / ".hermes"))
         self._agent_context = str(kwargs.get("agent_context", "primary") or "primary")
+        self._session_source = _session_source(str(kwargs.get("platform") or ""))
+        self._run_kind = _run_kind(self._agent_context, self._session_source)
         if self._agent_context != "primary":
             logger.info(
                 "valorbrain: agent_context=%s — reads enabled, writes suppressed",
                 self._agent_context,
             )
 
-        # Build env for hook shell-outs (GPU endpoints, profile)
-        for var in (
-            "VALORBRAIN_EMBED_URL",
-            "VALORBRAIN_LLM_URL",
-            "VALORBRAIN_LLM_MODEL",
-            "VALORBRAIN_LLM_REASONING_EFFORT",
-            "VALORBRAIN_LLM_NO_THINK",
-            "VALORBRAIN_RERANK_URL",
-            "VALORBRAIN_PROFILE",
-            "VALORBRAIN_API_TOKEN",
-            "VALORBRAIN_ENGINE_URL",
-            "VALORBRAIN_API_URL",
-            "VALORBRAIN_USER_ID",
-        ):
-            val = os.environ.get(var)
-            if val:
-                self._env_extra[var] = val
-
-        tenant_id = (
-            os.environ.get("VALORBRAIN_TENANT_ID")
-            or os.environ.get("VALORBRAIN_DEFAULT_TENANT_ID")
-        )
-        if tenant_id:
-            self._env_extra["VALORBRAIN_TENANT_ID"] = tenant_id
-            self._env_extra["VALORBRAIN_DEFAULT_TENANT_ID"] = tenant_id
-
+        # Env for the binary shell-outs (hooks, managed serve). Only built when a
+        # binary exists: hosted mode never has one, so the engine host's tenant
+        # (VALORBRAIN_TENANT_ID of an admin key) has nowhere to go.
         source_agent = _resolve_source_agent()
-        self._env_extra["VALORBRAIN_SOURCE_AGENT"] = source_agent
+        if self._bin:
+            for var in (
+                "VALORBRAIN_EMBED_URL",
+                "VALORBRAIN_LLM_URL",
+                "VALORBRAIN_LLM_MODEL",
+                "VALORBRAIN_LLM_REASONING_EFFORT",
+                "VALORBRAIN_LLM_NO_THINK",
+                "VALORBRAIN_RERANK_URL",
+                "VALORBRAIN_PROFILE",
+                "VALORBRAIN_API_TOKEN",
+                "VALORBRAIN_ENGINE_URL",
+                "VALORBRAIN_API_URL",
+                "VALORBRAIN_USER_ID",
+            ):
+                val = os.environ.get(var)
+                if val:
+                    self._env_extra[var] = val
+
+            tenant_id = (
+                os.environ.get("VALORBRAIN_TENANT_ID")
+                or os.environ.get("VALORBRAIN_DEFAULT_TENANT_ID")
+            )
+            if tenant_id:
+                self._env_extra["VALORBRAIN_TENANT_ID"] = tenant_id
+                self._env_extra["VALORBRAIN_DEFAULT_TENANT_ID"] = tenant_id
+
+            self._env_extra["VALORBRAIN_SOURCE_AGENT"] = source_agent
+            # The local binary reads the run kind from its env (ADR-084).
+            if self._run_kind:
+                self._env_extra["VALORBRAIN_RUN_KIND"] = self._run_kind
         # Keep process env aligned so hooks inherit the resolved slug
         os.environ["VALORBRAIN_SOURCE_AGENT"] = source_agent
 
@@ -549,7 +1178,7 @@ class ValorBrainProvider(MemoryProvider):
             "transcript_path": self._transcript_path,
             "hook_event_name": "SessionStart",
         }
-        output = _run_hook(self._bin, "session-bootstrap", hook_input, env_extra=self._env_extra)
+        output = self._invoke_hook("session-bootstrap", hook_input)
         if output:
             ctx = _extract_context(output)
             if ctx:
@@ -561,7 +1190,7 @@ class ValorBrainProvider(MemoryProvider):
         # dumps waste tokens and bury the facts (review finding).
         if not self._bootstrap_context:
             try:
-                wc_text = _rest_call(self._port, "GET", "/api/v1/memory/working-context?format=md", raw=True)
+                wc_text = _rest_call(self._port, "GET", "/api/v1/memory/working-context?format=md", raw=True, run_kind=self._run_kind)
                 if isinstance(wc_text, str) and len(wc_text) > 10:
                     self._bootstrap_context = wc_text
                     logger.info("valorbrain: REST working_context returned %d chars", len(wc_text))
@@ -586,14 +1215,83 @@ class ValorBrainProvider(MemoryProvider):
 
         self._register_runtime()
 
+    def _remote_engine(self) -> bool:
+        return _engine_url() is not None
+
+    def _has_hooks(self) -> bool:
+        """Hooks rodam local (binário) ou no engine via REST (hospedado)."""
+        return bool(self._bin) or self._remote_engine()
+
+    def _transcript_enabled(self) -> bool:
+        """Write/use the session transcript: always with the local binary (it
+        never leaves the machine), opt-in when the hooks run in a hosted engine."""
+        return bool(self._bin) or _privacy_flag("VALORBRAIN_SEND_TRANSCRIPT", "send_transcript", False)
+
+    def _invoke_hook(self, hook_name: str, hook_input: dict,
+                     timeout: int = _HOOK_TIMEOUT) -> Optional[str]:
+        """Roda um hook de ciclo de vida.
+
+        Self-hosted: shell-out para o binário (comportamento original).
+        Hospedado (sem binário, ou VALORBRAIN_HOOKS_MODE=hosted, em que
+        `self._bin` é sempre None): POST /api/v1/hooks/run — o engine roda o
+        MESMO código com o tenant do token; o cliente só manda o transcript (o
+        engine não lê o disco dele).
+        """
+        if self._bin:
+            return _run_hook(
+                self._bin, hook_name, hook_input,
+                timeout=timeout, env_extra=self._env_extra,
+            )
+        return self._run_hook_remote(hook_name, hook_input, timeout=timeout)
+
+    def _run_hook_remote(self, hook_name: str, hook_input: dict,
+                         timeout: int = _HOOK_TIMEOUT) -> Optional[str]:
+        """Hook hospedado. Devolve stdout no dialeto do binário para o
+        `_extract_context` continuar valendo (JSON com additionalContext)."""
+        try:
+            payload: dict = {"hook": hook_name}
+            inp: dict = {}
+            fields = [
+                ("session_id", "sessionId"), ("hook_event_name", "hookEventName"), ("working_dir", "workingDir"),
+                ("agent_context", "agentContext"), ("session_source", "sessionSource"),
+            ]
+            if _privacy_flag("VALORBRAIN_SEND_PROMPT", "send_prompt", True):
+                fields.append(("prompt", "prompt"))
+            for src, dst in fields:
+                if hook_input.get(src) is not None:
+                    inp[dst] = hook_input[src]
+            if inp:
+                payload["input"] = inp
+            # Opt-in only (decision 18): the transcript holds every user and
+            # assistant message of the session.
+            transcript_path = hook_input.get("transcript_path")
+            if (transcript_path and os.path.isfile(transcript_path)
+                    and _privacy_flag("VALORBRAIN_SEND_TRANSCRIPT", "send_transcript", False)):
+                with open(transcript_path, "r", errors="replace") as fh:
+                    payload["transcript"] = fh.read(_HOOK_TRANSCRIPT_MAX_BYTES)
+            data = _rest_call(
+                self._port, "POST", "/api/v1/hooks/run", payload, timeout=float(timeout), run_kind=self._run_kind
+            )
+            # Hospedado (este caminho só roda sem binário): pin novo ou 6 h → heal.
+            _maybe_heal(data)
+            if not isinstance(data, dict) or not data.get("ok"):
+                return None
+            context = data.get("context") or ""
+            if not context:
+                return None
+            return json.dumps({"hookSpecificOutput": {"additionalContext": context}})
+        except Exception as e:
+            logger.debug("valorbrain: remote hook %s failed: %s", hook_name, e)
+            return None
+
     def _build_runtime_key(self) -> Optional[str]:
-        tenant_id = os.environ.get("VALORBRAIN_TENANT_ID") or os.environ.get("VALORBRAIN_DEFAULT_TENANT_ID")
-        if not tenant_id:
+        seed = _runtime_seed()
+        if not seed:
             return None
         import hashlib
         import socket
         host = socket.gethostname()
-        digest = hashlib.sha256(f"{tenant_id}:{host}:hermes:1.0".encode()).hexdigest()[:16]
+        digest = hashlib.sha256(f"{seed}:{host}:hermes:1.0".encode()).hexdigest()[:16]
         return f"hermes:{host}:{digest}"
 
     def _register_runtime(self) -> None:
@@ -603,18 +1301,26 @@ class ValorBrainProvider(MemoryProvider):
         self._runtime_key = runtime_key
         import socket
         host = socket.gethostname()
-        health = _rest_call(self._port, "GET", "/health") or {}
+        health = _rest_call(self._port, "GET", "/health", run_kind=self._run_kind) or {}
         config_health = "ok" if health else "unreachable"
         payload = {
             "runtime_key": runtime_key,
             "agent_platform": "hermes",
             "display_name": f"{host} (Hermes)",
             "hostname": host,
-            "plugin_version": "1.1.0",
-            "capabilities": {"memory_provider": True, "hooks": True, "tools": True},
+            "plugin_version": _PLUGIN_VERSION,
+            "capabilities": {
+                "memory_provider": True,
+                "hooks": True,
+                "tools": True,
+                "harness": "hermes",
+                "contract_version": _CONTRACT_VERSION,
+            },
             "config_health": config_health,
         }
-        res = _rest_call(self._port, "POST", "/api/v1/runtimes/register", payload, timeout=8.0)
+        res = _rest_call(self._port, "POST", "/api/v1/runtimes/register", payload, timeout=8.0, run_kind=self._run_kind)
+        if not self._bin:
+            _maybe_heal(res)
         if res and res.get("runtime", {}).get("id"):
             self._runtime_id = res["runtime"]["id"]
             logger.info("valorbrain: hermes runtime registered (%s)", self._runtime_id)
@@ -632,8 +1338,9 @@ class ValorBrainProvider(MemoryProvider):
             "runtime_key": self._runtime_key,
             "session_key": session_id or self._session_id,
             "config_health": "ok",
+            "capabilities": {"contract_version": _CONTRACT_VERSION},
         }
-        _rest_call(self._port, "POST", "/api/v1/runtimes/heartbeat", payload, timeout=5.0)
+        _rest_call(self._port, "POST", "/api/v1/runtimes/heartbeat", payload, timeout=5.0, run_kind=self._run_kind)
 
     def _maybe_fetch_setup_instructions(self, query: str) -> str:
         """Sprint 11.5 — Detect 'Setup ValorBrain from <url>' or '/vb-setup'
@@ -669,7 +1376,7 @@ class ValorBrainProvider(MemoryProvider):
         # Fetch instructions
         try:
             agent = os.environ.get("VALORBRAIN_SOURCE_AGENT", "hermes-plugin")
-            resp = _rest_call(self._port, "GET", f"/setup/instructions?agent={agent}")
+            resp = _rest_call(self._port, "GET", f"/setup/instructions?agent={agent}", run_kind=self._run_kind)
             if not resp or "valorbrain_setup" not in resp:
                 return ""
             data = resp["valorbrain_setup"]
@@ -704,7 +1411,7 @@ class ValorBrainProvider(MemoryProvider):
         continues with whatever else is configured.
         """
         try:
-            data = _rest_call(self._port, "GET", f"/foundations?limit={limit}")
+            data = _rest_call(self._port, "GET", f"/foundations?limit={limit}", run_kind=self._run_kind)
             if not data or not isinstance(data, dict):
                 return ""
             foundations = data.get("foundations", [])
@@ -730,7 +1437,7 @@ class ValorBrainProvider(MemoryProvider):
             return ""
 
     def system_prompt_block(self) -> str:
-        if not self._bin:
+        if not self._has_hooks():
             return ""
         agent = _resolve_source_agent()
         # Portable, multi-tenant, multi-language friendly. No company-specific rules.
@@ -768,16 +1475,16 @@ class ValorBrainProvider(MemoryProvider):
             "declaration the quality signal stays blind. When the user CONFIRMS what a "
             "memory said, pass verdict=\"confirmed\"; when the user CORRECTS or "
             "contradicts it, pass verdict=\"corrected\" — that feeds the trust loop.\n"
-            "Product feedback: `feedback_submit` / `feedback_check` — report ValorBrain product "
+            "Product feedback: `feedback` (action=\"submit\" / action=\"check\") — report ValorBrain product "
             "bugs, bad retrieval, missing capabilities, or verified fixes to the VB team "
             "(returns FB-XXXX). Use when the *product* fails you — not for normal domain work.\n"
             "Lifecycle (automatic): session bootstrap, context surfacing, session-end extraction.\n"
             "\n"
             "## Feedback hygiene (required)\n"
-            "Call `feedback_submit` once per distinct product issue when: tool/MCP errors, empty "
+            "Call `feedback` action=\"submit\" once per distinct product issue when: tool/MCP errors, empty "
             "or wrong recall when knowledge should exist, ranking noise, or a fix you verified "
             "(category=praise). Title = one actionable line; description = repro + expected vs "
-            "actual. Never put secrets in feedback. Track with `feedback_check`.\n"
+            "actual. Never put secrets in feedback. Track with `feedback` action=\"check\".\n"
         )
 
     # -- Prefetch / recall -----------------------------------------------------
@@ -810,8 +1517,11 @@ class ValorBrainProvider(MemoryProvider):
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
         """Background: run context-surfacing hook for next turn."""
         self._maybe_heartbeat_runtime(session_id)
-        if not self._bin or not query or len(query) < 5:
+        if not query or len(query) < 5:
             return
+        # Prompt sharing off: no per-turn recall at all (the hook and the REST
+        # fallback both send the prompt). Session-start context still arrives.
+        share_prompt = _privacy_flag("VALORBRAIN_SEND_PROMPT", "send_prompt", True)
 
         # Sprint 11.5 — Setup-via-chat detection
         # Quando user/agent envia "Setup ValorBrain from <url>" ou "/vb-setup",
@@ -842,40 +1552,59 @@ class ValorBrainProvider(MemoryProvider):
                 "prompt": query,
                 "hook_event_name": "UserPromptSubmit",
             }
-            output = _run_hook(
-                self._bin,
+            parts: list = []
+
+            # Pós-compactação: o Hermes não tem SessionStart com matcher
+            # "compact"; o canal é o próprio prefetch. Re-injeta o estado
+            # (precompact-state.md) uma vez no turno seguinte à compressão —
+            # local via binário, hospedado via REST no engine.
+            with self._prefetch_lock:
+                pending_postcompact = self._postcompact_pending
+                self._postcompact_pending = False
+            if pending_postcompact:
+                pc = self._invoke_hook("postcompact-inject", {
+                    "session_id": run_session_id,
+                    "transcript_path": run_transcript_path,
+                    "hook_event_name": "SessionStart",
+                })
+                if pc:
+                    pc_ctx = _extract_context(pc)
+                    if pc_ctx:
+                        parts.append(pc_ctx)
+
+            output = self._invoke_hook(
                 "context-surfacing",
                 hook_input,
                 timeout=_CONTEXT_SURFACING_TIMEOUT,
-                env_extra=self._env_extra,
-            )
+            ) if share_prompt else None
             if output:
                 ctx = _extract_context(output)
                 if ctx:
-                    with self._prefetch_lock:
-                        # Only write if we're still the latest generation
-                        if my_gen == self._prefetch_generation:
-                            self._prefetch_result = ctx
-                            self._prefetch_result_gen = my_gen
-                            return  # Success via CLI hook
+                    parts.append(ctx)
 
-            # Fallback: REST memory_prepare if CLI hook returned nothing
-            # (binary missing, hook failed, or empty output). fast_mode: the
-            # per-turn funnel delivered docs=0 in 30/30 prod samples while
-            # costing ~3.5s of p50 (perf profile 2026-08-15) — identity/recall/
-            # goals blocks still arrive, the document funnel does not.
-            try:
-                rest_body = {"message": query, "recall_budget": 600, "fast_mode": True}
-                rest_data = _rest_call(self._port, "POST", "/api/v1/memory/prepare", rest_body)
-                if rest_data:
-                    rest_ctx = json.dumps(rest_data, ensure_ascii=False)
-                    if rest_ctx and len(rest_ctx) > 10:
-                        with self._prefetch_lock:
-                            if my_gen == self._prefetch_generation:
-                                self._prefetch_result = rest_ctx
-                                self._prefetch_result_gen = my_gen
-            except Exception:
-                pass  # Both CLI and REST failed — degrade silently
+            if not parts and share_prompt:
+                # Fallback: REST memory_prepare se o hook não devolveu nada
+                # (sem binário e sem engine remoto, hook falhou, ou vazio).
+                # fast_mode: o funil por turno entregou docs=0 em 30/30 amostras
+                # de produção custando ~3.5s de p50 (perfil 2026-08-15) —
+                # identity/recall/goals continuam vindo, o funil de documentos
+                # não.
+                try:
+                    rest_body = {"message": query, "recall_budget": 600, "fast_mode": True}
+                    rest_data = _rest_call(self._port, "POST", "/api/v1/memory/prepare", rest_body, run_kind=self._run_kind)
+                    if rest_data:
+                        rest_ctx = json.dumps(rest_data, ensure_ascii=False)
+                        if rest_ctx and len(rest_ctx) > 10:
+                            parts.append(rest_ctx)
+                except Exception:
+                    pass  # Degrada em silêncio
+
+            if parts:
+                with self._prefetch_lock:
+                    # Only write if we're still the latest generation
+                    if my_gen == self._prefetch_generation:
+                        self._prefetch_result = "\n\n".join(parts)
+                        self._prefetch_result_gen = my_gen
 
         # Wait for any previous prefetch to finish
         if self._prefetch_thread and self._prefetch_thread.is_alive():
@@ -897,7 +1626,7 @@ class ValorBrainProvider(MemoryProvider):
         """
         if self._agent_context != "primary":
             return
-        if not self._transcript_path:
+        if not self._transcript_path or not self._transcript_enabled():
             return
 
         try:
@@ -936,21 +1665,22 @@ class ValorBrainProvider(MemoryProvider):
         """
         if self._agent_context != "primary":
             return
-        if not self._bin or not self._transcript_path:
+        if not self._has_hooks() or not self._transcript_path or not self._transcript_enabled():
             return
 
         hook_input = {
             "session_id": self._session_id,
             "transcript_path": self._transcript_path,
             "hook_event_name": "Stop",
+            "agent_context": self._agent_context,
+            "session_source": self._session_source or None,
         }
 
         threads = []
         for hook_name in ("decision-extractor", "handoff-generator", "feedback-loop"):
             t = threading.Thread(
-                target=_run_hook,
-                args=(self._bin, hook_name, hook_input),
-                kwargs={"env_extra": self._env_extra},
+                target=self._invoke_hook,
+                args=(hook_name, hook_input),
                 daemon=True,
                 name=f"valorbrain-{hook_name}",
             )
@@ -981,7 +1711,7 @@ class ValorBrainProvider(MemoryProvider):
         session). Cache coherence, not a vault write, so it runs for all contexts.
         """
         new_id = str(new_session_id or "").strip()
-        if not new_id or not self._bin:
+        if not new_id or not self._has_hooks():
             return
         # Idempotent re-fire (duplicate dispatch) with no reset is a no-op.
         if new_id == self._session_id and not reset:
@@ -1015,7 +1745,7 @@ class ValorBrainProvider(MemoryProvider):
         """
         if self._agent_context != "primary":
             return ""
-        if not self._bin or not self._transcript_path:
+        if not self._has_hooks() or not self._transcript_path or not self._transcript_enabled():
             return ""
 
         hook_input = {
@@ -1023,7 +1753,10 @@ class ValorBrainProvider(MemoryProvider):
             "transcript_path": self._transcript_path,
             "hook_event_name": "PreCompact",
         }
-        _run_hook(self._bin, "precompact-extract", hook_input, env_extra=self._env_extra)
+        self._invoke_hook("precompact-extract", hook_input)
+        # O estado acabou de ser escrito (local ou no engine); o próximo turno
+        # re-injeta via prefetch.
+        self._postcompact_pending = True
         return ""
 
     # -- Tools (REST API) ------------------------------------------------------
@@ -1033,6 +1766,7 @@ class ValorBrainProvider(MemoryProvider):
             RETRIEVE_SCHEMA, GET_SCHEMA, SESSION_LOG_SCHEMA,
             TIMELINE_SCHEMA, SIMILAR_SCHEMA,
             STORE_SCHEMA, HEALTH_SCHEMA, WORKING_CONTEXT_SCHEMA,
+            FEEDBACK_SCHEMA,
         ]
 
     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
@@ -1053,6 +1787,8 @@ class ValorBrainProvider(MemoryProvider):
                 return self._tool_health(args)
             elif tool_name == "valorbrain_working_context":
                 return self._tool_working_context(args)
+            elif tool_name == "valorbrain_feedback":
+                return self._tool_feedback(args)
             return json.dumps({"error": f"Unknown tool: {tool_name}"})
         except Exception as e:
             return json.dumps({"error": str(e)})
@@ -1064,25 +1800,29 @@ class ValorBrainProvider(MemoryProvider):
         body = {"query": query, "compact": True}
         if args.get("limit"):
             body["limit"] = args["limit"]
-        data = _rest_call(self._port, "POST", "/retrieve", body)
+        data, err = _rest_call_detail(self._port, "POST", "/retrieve", body, run_kind=self._run_kind)
         if data is None:
-            return json.dumps({"error": "ValorBrain REST API unreachable"})
+            return _tool_call_error(err)
         return json.dumps(data, ensure_ascii=False)
 
     def _tool_get(self, args: dict) -> str:
         docid = args.get("docid", "")
         if not docid:
             return json.dumps({"error": "docid is required"})
-        data = _rest_call(self._port, "GET", f"/documents/{docid}")
+        data, err = _rest_call_detail(self._port, "GET", f"/documents/{docid}", run_kind=self._run_kind)
         if data is None:
-            return json.dumps({"error": f"Document not found: {docid}"})
+            # 404 aqui é o caso comum (docid curto/inexistente), não engine fora
+            # do ar: antes respondia "Document not found" para 401 e 5xx também.
+            if err and err.get("kind") == "not_found":
+                return json.dumps({"error": f"Document not found: {docid}"})
+            return _tool_call_error(err)
         return json.dumps(data, ensure_ascii=False)
 
     def _tool_session_log(self, args: dict) -> str:
         limit = args.get("limit", 5)
-        data = _rest_call(self._port, "GET", f"/sessions?limit={limit}")
+        data, err = _rest_call_detail(self._port, "GET", f"/sessions?limit={limit}", run_kind=self._run_kind)
         if data is None:
-            return json.dumps({"error": "ValorBrain REST API unreachable"})
+            return _tool_call_error(err)
         return json.dumps(data, ensure_ascii=False)
 
     def _tool_timeline(self, args: dict) -> str:
@@ -1091,9 +1831,9 @@ class ValorBrainProvider(MemoryProvider):
             return json.dumps({"error": "docid is required"})
         before = args.get("before", 5)
         after = args.get("after", 5)
-        data = _rest_call(self._port, "GET", f"/timeline/{docid}?before={before}&after={after}")
+        data, err = _rest_call_detail(self._port, "GET", f"/timeline/{docid}?before={before}&after={after}", run_kind=self._run_kind)
         if data is None:
-            return json.dumps({"error": "ValorBrain REST API unreachable"})
+            return _tool_call_error(err)
         return json.dumps(data, ensure_ascii=False)
 
     def _tool_similar(self, args: dict) -> str:
@@ -1101,9 +1841,9 @@ class ValorBrainProvider(MemoryProvider):
         if not docid:
             return json.dumps({"error": "docid is required"})
         limit = args.get("limit", 5)
-        data = _rest_call(self._port, "GET", f"/graph/similar/{docid}?limit={limit}")
+        data, err = _rest_call_detail(self._port, "GET", f"/graph/similar/{docid}?limit={limit}", run_kind=self._run_kind)
         if data is None:
-            return json.dumps({"error": "ValorBrain REST API unreachable"})
+            return _tool_call_error(err)
         return json.dumps(data, ensure_ascii=False)
 
     def _tool_store(self, args: dict) -> str:
@@ -1121,24 +1861,46 @@ class ValorBrainProvider(MemoryProvider):
         }
         if args.get("tags"):
             body["tags"] = args["tags"]
-        data = _rest_call(self._port, "POST", "/api/v1/memory/store", body)
+        data, err = _rest_call_detail(self._port, "POST", "/api/v1/memory/store", body, run_kind=self._run_kind)
         if data is None:
-            return json.dumps({"error": "ValorBrain REST API unreachable"})
+            return _tool_call_error(err)
         return json.dumps(data, ensure_ascii=False)
 
     def _tool_health(self, args: dict) -> str:
         """Check memory health via GET /api/v1/memory/health."""
         limit = args.get("limit", 3)
-        data = _rest_call(self._port, "GET", f"/api/v1/memory/health?limit={limit}")
+        data, err = _rest_call_detail(self._port, "GET", f"/api/v1/memory/health?limit={limit}", run_kind=self._run_kind)
         if data is None:
-            return json.dumps({"error": "ValorBrain REST API unreachable"})
+            return _tool_call_error(err)
         return json.dumps(data, ensure_ascii=False)
 
     def _tool_working_context(self, args: dict) -> str:
         """Get working context via GET /api/v1/memory/working-context."""
-        data = _rest_call(self._port, "GET", "/api/v1/memory/working-context")
+        data, err = _rest_call_detail(self._port, "GET", "/api/v1/memory/working-context", run_kind=self._run_kind)
         if data is None:
-            return json.dumps({"error": "ValorBrain REST API unreachable"})
+            return _tool_call_error(err)
+        return json.dumps(data, ensure_ascii=False)
+
+    def _tool_feedback(self, args: dict) -> str:
+        """Submit or track agent feedback (FB-0003)."""
+        action = (args.get("action") or "check").lower()
+        if action == "submit":
+            title = (args.get("title") or "").strip()
+            description = (args.get("description") or "").strip()
+            if len(title) < 5 or len(description) < 10:
+                return json.dumps({"error": "submit requires title (>=5) and description (>=10)"})
+            body = {"title": title, "description": description}
+            for key in ("category", "priority"):
+                if args.get(key):
+                    body[key] = args[key]
+            data, err = _rest_call_detail(self._port, "POST", "/api/v1/feedback", body=body, run_kind=self._run_kind)
+            if data is None:
+                return _tool_call_error(err)
+            return json.dumps(data, ensure_ascii=False)
+        feedback_id = args.get("feedback_id") or "all"
+        data, err = _rest_call_detail(self._port, "GET", f"/api/v1/feedback/{feedback_id}", run_kind=self._run_kind)
+        if data is None:
+            return _tool_call_error(err)
         return json.dumps(data, ensure_ascii=False)
 
     # -- Managed serve ---------------------------------------------------------
@@ -1164,7 +1926,7 @@ class ValorBrainProvider(MemoryProvider):
                     self._serve_proc = None
                     return
                 time.sleep(0.5)
-                health = _rest_call(self._port, "GET", "/health", timeout=1.0)
+                health = _rest_call(self._port, "GET", "/health", timeout=1.0, run_kind=self._run_kind)
                 if health:
                     logger.info("valorbrain: managed serve ready (pid=%d, port=%d)",
                                 self._serve_proc.pid, self._port)
@@ -1192,6 +1954,76 @@ class ValorBrainProvider(MemoryProvider):
 
 
 # ---------------------------------------------------------------------------
+# PreToolUse middleware — contexto do vault por arquivo, sem bloquear o agente
+# ---------------------------------------------------------------------------
+#
+# O hook `pretool-inject` (matcher Read|Edit|Write) injeta decisões/antipadrões
+# do vault sobre o arquivo alvo. Hospedado não tem hook de PreToolUse no
+# harness: usamos o middleware NATIVO do Hermes (`tool_execution`), que roda
+# dentro do processo do agente. Middleware é síncrono — uma chamada HTTP ali
+# travaria o loop — então o desenho é cache + aquecimento em background: a
+# resposta do turno nunca espera; a partir da segunda interação com o mesmo
+# arquivo o contexto aparece.
+
+_FILE_CTX_TTL_S = 600
+_PRETOOL_TIMEOUT_S = 5
+_file_ctx_cache: dict = {}
+_file_ctx_inflight: set = set()
+_file_ctx_lock = threading.Lock()
+
+
+def _cached_file_context(provider, path: str) -> str:
+    """Contexto do vault para `path`: devolve o cache e aquece em background."""
+    now = time.time()
+    with _file_ctx_lock:
+        entry = _file_ctx_cache.get(path)
+        if entry and (now - entry[0]) < _FILE_CTX_TTL_S:
+            return entry[1]
+        if path in _file_ctx_inflight:
+            return entry[1] if entry else ""
+        _file_ctx_inflight.add(path)
+
+    def _warm() -> None:
+        try:
+            out = provider._invoke_hook(
+                "pretool-inject",
+                {"tool_input": {"file_path": path}, "hook_event_name": "PreToolUse"},
+                timeout=_PRETOOL_TIMEOUT_S,
+            )
+            ctx = _extract_context(out) if out else ""
+            with _file_ctx_lock:
+                _file_ctx_cache[path] = (time.time(), ctx)
+        except Exception:
+            pass
+        finally:
+            with _file_ctx_lock:
+                _file_ctx_inflight.discard(path)
+
+    threading.Thread(target=_warm, daemon=True, name="valorbrain-pretool").start()
+    return entry[1] if entry else ""
+
+
+def _tool_execution_middleware(provider):
+    """Appenda o contexto do vault ao resultado de tools com `file_path`."""
+
+    def middleware(tool_name, args, next_call, **context):
+        result = next_call(args)
+        try:
+            candidate = None
+            if isinstance(args, dict):
+                candidate = args.get("file_path") or args.get("path")
+            if isinstance(candidate, str) and len(candidate) >= 5 and isinstance(result, str):
+                block = _cached_file_context(provider, candidate)
+                if block:
+                    return result + "\n\n" + block
+        except Exception:
+            pass
+        return result
+
+    return middleware
+
+
+# ---------------------------------------------------------------------------
 # Plugin entry point
 # ---------------------------------------------------------------------------
 
@@ -1205,19 +2037,20 @@ def _gateway_runtime_heartbeat_loop(runtime_key: str, port: int) -> None:
             port,
             "POST",
             "/api/v1/runtimes/heartbeat",
-            {"runtime_key": runtime_key, "config_health": "ok"},
+            {
+                "runtime_key": runtime_key,
+                "config_health": "ok",
+                "capabilities": {"contract_version": _CONTRACT_VERSION},
+            },
             timeout=5.0,
         )
 
 
 def _eager_register_gateway_runtime() -> None:
     """Register runtime at plugin load — not only when a chat session starts."""
-    tenant_id = (
-        os.environ.get("VALORBRAIN_TENANT_ID")
-        or os.environ.get("VALORBRAIN_DEFAULT_TENANT_ID")
-    )
-    if not tenant_id:
-        logger.debug("valorbrain: skip gateway runtime register — no tenant id")
+    seed = _runtime_seed()
+    if not seed:
+        logger.debug("valorbrain: skip gateway runtime register — no tenant id/token")
         return
     try:
         port = int(os.environ.get("VALORBRAIN_SERVE_PORT", _DEFAULT_PORT))
@@ -1227,7 +2060,7 @@ def _eager_register_gateway_runtime() -> None:
     import socket
 
     host = socket.gethostname()
-    digest = hashlib.sha256(f"{tenant_id}:{host}:hermes:1.0".encode()).hexdigest()[:16]
+    digest = hashlib.sha256(f"{seed}:{host}:hermes:1.0".encode()).hexdigest()[:16]
     runtime_key = f"hermes:{host}:{digest}"
     health = _rest_call(port, "GET", "/health") or {}
     config_health = "ok" if health else "unreachable"
@@ -1236,8 +2069,14 @@ def _eager_register_gateway_runtime() -> None:
         "agent_platform": "hermes",
         "display_name": f"{host} (Hermes)",
         "hostname": host,
-        "plugin_version": "1.1.0",
-        "capabilities": {"memory_provider": True, "hooks": True, "tools": True},
+        "plugin_version": _PLUGIN_VERSION,
+        "capabilities": {
+            "memory_provider": True,
+            "hooks": True,
+            "tools": True,
+            "harness": "hermes",
+            "contract_version": _CONTRACT_VERSION,
+        },
         "config_health": config_health,
     }
     res = _rest_call(port, "POST", "/api/v1/runtimes/register", payload, timeout=8.0)
@@ -1258,5 +2097,12 @@ def _eager_register_gateway_runtime() -> None:
 
 def register(ctx) -> None:
     """Register ValorBrain as a memory provider plugin."""
-    ctx.register_memory_provider(ValorBrainProvider())
+    provider = ValorBrainProvider()
+    ctx.register_memory_provider(provider)
+    # PreToolUse nativo: contexto por arquivo no resultado das tools (o harness
+    # hospedado não tem hook de PreToolUse; middleware é o caminho). Não-bloqueante.
+    try:
+        ctx.register_middleware("tool_execution", _tool_execution_middleware(provider))
+    except Exception as e:
+        logger.debug("valorbrain: tool middleware registration skipped: %s", e)
     _eager_register_gateway_runtime()

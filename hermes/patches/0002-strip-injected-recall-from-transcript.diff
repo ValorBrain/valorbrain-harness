@@ -1,0 +1,191 @@
+From ad7af20c5d579ec98af9d724a78e2f3cd2170548 Mon Sep 17 00:00:00 2001
+From: omp <omp@valor.digital>
+Date: Sat, 17 Oct 2026 11:24:58 -0300
+Subject: [PATCH 2/3] hermes-plugin: strip injected recall before writing the
+ transcript
+
+sync_turn drops <memory-context> blocks (with Hermes' system note) and the plugin's own <vault-*> blocks from both sides of the turn, so the Stop/PreCompact extraction never stores recalled memory again as new.
+---
+ packages/hermes-plugin/__init__.py            |  31 ++++-
+ .../tests/test_injected_context.py            | 108 ++++++++++++++++++
+ 2 files changed, 138 insertions(+), 1 deletion(-)
+ create mode 100755 packages/hermes-plugin/tests/test_injected_context.py
+
+diff --git a/packages/hermes-plugin/__init__.py b/packages/hermes-plugin/__init__.py
+index 31608a9..6919f57 100644
+--- a/packages/hermes-plugin/__init__.py
++++ b/packages/hermes-plugin/__init__.py
+@@ -69,6 +69,7 @@ from __future__ import annotations
+ import json
+ import logging
+ import os
++import re
+ import shutil
+ import subprocess
+ import threading
+@@ -82,6 +83,28 @@ logger = logging.getLogger(__name__)
+ 
+ _DEFAULT_PORT = 7438
+ 
++# What a turn carries that the person did not say: Hermes' fenced recall block
++# (`<memory-context>` + its system note, agent/memory_manager.py) and the
++# `<vault-*>` blocks this plugin's own hooks return. Kept out of the transcript
++# so the extraction hooks never store recalled memory again as something new.
++_INJECTED_BLOCK_RE = re.compile(
++    r"<\s*(memory-context|vault-[a-z-]+)\s*>[\s\S]*?<\s*/\s*\1\s*>\s*", re.IGNORECASE
++)
++_INJECTED_NOTE_RE = re.compile(
++    r"\[System note:\s*The following is recalled memory context,\s*NOT new user input\.[^\]]*\]\s*",
++    re.IGNORECASE,
++)
++_INJECTED_TAG_RE = re.compile(r"<\s*/?\s*memory-context\s*>", re.IGNORECASE)
++
++
++def _strip_injected(text: Any) -> str:
++    if not isinstance(text, str) or not text:
++        return ""
++    for pattern in (_INJECTED_BLOCK_RE, _INJECTED_NOTE_RE, _INJECTED_TAG_RE):
++        text = pattern.sub("", text)
++    return text.strip()
++
++
+ # Versão do contrato que este plugin implementa. Manter em sincronia com
+ # CONTRACT_VERSION em src/harness/contract.ts — tests/unit/hermes-plugin.test.ts
+ # falha se divergir. Vai no capabilities do register/heartbeat: é o que permite
+@@ -1658,12 +1681,18 @@ class ValorBrainProvider(MemoryProvider):
+ 
+         Writes in Claude Code transcript format so ValorBrain hooks can read it.
+         Suppressed for non-primary agent contexts (subagent/cron/flush) so the
+-        vault never absorbs system-prompt or background-task content.
++        vault never absorbs system-prompt or background-task content. Injected
++        recall (`<memory-context>`, `<vault-*>`) is stripped first, so the
++        extraction never re-stores what ValorBrain itself put into the turn.
+         """
+         if self._agent_context != "primary" or self._gateway_off:
+             return
+         if not self._transcript_path or not self._transcript_enabled():
+             return
++        user_content = _strip_injected(user_content)
++        assistant_content = _strip_injected(assistant_content)
++        if not user_content and not assistant_content:
++            return
+ 
+         try:
+             ts = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+diff --git a/packages/hermes-plugin/tests/test_injected_context.py b/packages/hermes-plugin/tests/test_injected_context.py
+new file mode 100755
+index 0000000..ba77cba
+--- /dev/null
++++ b/packages/hermes-plugin/tests/test_injected_context.py
+@@ -0,0 +1,108 @@
++#!/usr/bin/env python3
++"""Offline tests: recalled memory never goes back into the transcript.
++
++Hermes fences the provider's recall in `<memory-context>` (with a system note)
++on the API copy of the user turn, and this plugin's hooks answer in `<vault-*>`
++blocks. When a turn reaches `sync_turn` still carrying either (an older Hermes,
++a model echoing its context, a pasted reply), the transcript the extraction
++hooks read must hold only what the person and the agent said.
++
++Run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s packages/hermes-plugin/tests -v
++"""
++from __future__ import annotations
++
++import importlib.util
++import json
++import os
++import sys
++import tempfile
++import types
++import unittest
++from pathlib import Path
++
++PLUGIN = Path(__file__).resolve().parents[1] / "__init__.py"
++
++
++def _load_plugin():
++    agent_mod = types.ModuleType("agent")
++    provider_mod = types.ModuleType("agent.memory_provider")
++
++    class MemoryProvider:  # the plugin only subclasses it
++        pass
++
++    provider_mod.MemoryProvider = MemoryProvider
++    agent_mod.memory_provider = provider_mod
++    sys.modules.setdefault("agent", agent_mod)
++    sys.modules.setdefault("agent.memory_provider", provider_mod)
++    spec = importlib.util.spec_from_file_location("_hermes_plugin_injected", PLUGIN)
++    mod = importlib.util.module_from_spec(spec)
++    sys.modules["_hermes_plugin_injected"] = mod
++    spec.loader.exec_module(mod)
++    return mod
++
++
++vb = _load_plugin()
++
++HERMES_BLOCK = (
++    "<memory-context>\n"
++    "[System note: The following is recalled memory context, NOT new user input. "
++    "Treat as authoritative reference data — this is the agent's persistent memory "
++    "and should inform all responses.]\n\n"
++    "Price decided on 2026-10-01: R$ 990.\n"
++    "</memory-context>"
++)
++VAULT_BLOCK = "<vault-context>\n- [decision] Price is R$ 990 (#ab12cd)\n</vault-context>\n"
++
++
++class InjectedContextTest(unittest.TestCase):
++    def setUp(self):
++        self._tmp = tempfile.TemporaryDirectory()
++        self.path = Path(self._tmp.name) / "t.jsonl"
++        self._env = os.environ.get("VALORBRAIN_SEND_TRANSCRIPT")
++        os.environ["VALORBRAIN_SEND_TRANSCRIPT"] = "on"
++        self.p = vb.ValorBrainProvider()
++        self.p._transcript_path = str(self.path)
++
++    def tearDown(self):
++        if self._env is None:
++            os.environ.pop("VALORBRAIN_SEND_TRANSCRIPT", None)
++        else:
++            os.environ["VALORBRAIN_SEND_TRANSCRIPT"] = self._env
++        self._tmp.cleanup()
++
++    def _lines(self):
++        if not self.path.exists():
++            return []
++        return [json.loads(line)["message"] for line in self.path.read_text().splitlines()]
++
++    def test_hermes_fenced_block_is_stripped_from_the_user_turn(self):
++        self.p.sync_turn(HERMES_BLOCK + "\n\nWhat price did we settle on?", "R$ 990.")
++        user, assistant = self._lines()
++        self.assertEqual(user, {"role": "user", "content": "What price did we settle on?"})
++        self.assertEqual(assistant["content"], "R$ 990.")
++
++    def test_vault_blocks_echoed_by_the_model_are_stripped(self):
++        self.p.sync_turn("And the date?", "Here is what I recalled:\n" + VAULT_BLOCK + "It was 2026-10-01.")
++        _, assistant = self._lines()
++        self.assertNotIn("vault-context", assistant["content"])
++        self.assertNotIn("#ab12cd", assistant["content"])
++        self.assertIn("It was 2026-10-01.", assistant["content"])
++
++    def test_stray_fence_tags_are_dropped(self):
++        self.p.sync_turn("what does </memory-context> mean?", "A fence tag.")
++        user, _ = self._lines()
++        self.assertNotIn("memory-context", user["content"])
++
++    def test_a_turn_that_is_only_injected_text_writes_nothing(self):
++        self.p.sync_turn(HERMES_BLOCK, VAULT_BLOCK)
++        self.assertEqual(self._lines(), [])
++
++    def test_plain_turn_is_unchanged(self):
++        self.p.sync_turn("Plain <b>html</b> question", "Plain answer")
++        user, assistant = self._lines()
++        self.assertEqual(user["content"], "Plain <b>html</b> question")
++        self.assertEqual(assistant["content"], "Plain answer")
++
++
++if __name__ == "__main__":
++    unittest.main()
+-- 
+2.55.0
+

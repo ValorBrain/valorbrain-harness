@@ -1,0 +1,10 @@
+{
+  "id": "vb-event-probe",
+  "name": "Event probe (test only)",
+  "description": "Records the payloads OpenClaw hands to plugin hooks, for the ValorBrain plugin's fixtures.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": { "out": { "type": "string" } }
+  }
+}
