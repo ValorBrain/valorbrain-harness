@@ -1,0 +1,49 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "br.com.valorbrain/memory",
+  "title": "ValorBrain",
+  "description": "Shared, sourced company memory for AI agents: recall context, store decisions, hand off work.",
+  "version": "1.1.0",
+  "websiteUrl": "https://valorbrain.com.br",
+  "repository": {
+    "url": "https://github.com/ValorBrain/valorbrain-harness",
+    "source": "github",
+    "id": "1334414285",
+    "subfolder": "mcp"
+  },
+  "icons": [
+    {
+      "src": "https://valorbrain.com.br/icon.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": ["any"]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcpbrain.valor.digital/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Leave unset if your client supports MCP OAuth (discovery + dynamic client registration). Otherwise send a ValorBrain MCP token (vbm_...) from https://valorbrain.valor.digital/settings/mcp-tokens or from `npx -y @valorbrain/cli@latest init --agent --json`.",
+          "value": "Bearer {vbm_token}",
+          "isRequired": false,
+          "isSecret": true,
+          "variables": {
+            "vbm_token": {
+              "description": "ValorBrain MCP token (starts with vbm_). vb_agent_ keys are REST-only.",
+              "isRequired": true,
+              "isSecret": true
+            }
+          }
+        },
+        {
+          "name": "X-Source-Agent",
+          "description": "Optional. Names the agent your writes are attributed to (e.g. goose, zed).",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}

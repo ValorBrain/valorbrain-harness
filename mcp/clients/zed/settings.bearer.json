@@ -1,0 +1,11 @@
+{
+  "context_servers": {
+    "valorbrain": {
+      "url": "https://mcpbrain.valor.digital/mcp",
+      "headers": {
+        "Authorization": "Bearer <vbm_token>",
+        "X-Source-Agent": "zed"
+      }
+    }
+  }
+}

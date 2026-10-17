@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "valorbrain": {
+      "url": "https://mcpbrain.valor.digital/mcp",
+      "headers": {
+        "X-Source-Agent": "kiro-cli"
+      },
+      "oauthScopes": [
+        "read",
+        "write"
+      ]
+    }
+  }
+}

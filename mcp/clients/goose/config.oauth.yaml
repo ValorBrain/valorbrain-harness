@@ -1,0 +1,9 @@
+extensions:
+  valorbrain:
+    name: valorbrain
+    type: streamable_http
+    uri: https://mcpbrain.valor.digital/mcp
+    enabled: true
+    timeout: 300
+    headers:
+      X-Source-Agent: goose

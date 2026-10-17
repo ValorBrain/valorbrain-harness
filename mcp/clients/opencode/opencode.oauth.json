@@ -1,0 +1,16 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "valorbrain": {
+      "type": "remote",
+      "url": "https://mcpbrain.valor.digital/mcp",
+      "enabled": true,
+      "oauth": {
+        "scope": "read write"
+      },
+      "headers": {
+        "X-Source-Agent": "opencode"
+      }
+    }
+  }
+}
