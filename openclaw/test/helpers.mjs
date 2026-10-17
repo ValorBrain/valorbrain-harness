@@ -18,8 +18,15 @@ export function recorder(routes = {}) {
     if (typeof spec === "function") spec = spec(body, call);
     if (spec === "throw") throw new TypeError("fetch failed");
     if (spec === "hang") {
+      // A real hanging fetch holds a socket that keeps the event loop alive until
+      // AbortSignal.timeout (an unref'd timer) fires. Model that with a ref'd
+      // handle, or Node 22's test runner sees an empty loop and cancels the test.
       const { promise, reject } = Promise.withResolvers();
-      init.signal?.addEventListener("abort", () => reject(init.signal.reason));
+      const socket = setInterval(() => {}, 1_000);
+      init.signal?.addEventListener("abort", () => {
+        clearInterval(socket);
+        reject(init.signal.reason);
+      });
       return await promise;
     }
     return new Response(spec.json === undefined ? "" : JSON.stringify(spec.json), {
