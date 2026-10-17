@@ -1,0 +1,10 @@
+{
+  "name": "valorbrain-openclaw-plugin",
+  "version": "0.10.2",
+  "private": true,
+  "description": "OpenClaw plugin adapter for ValorBrain — self-hosted engine only (needs the local `valorbrain` binary)",
+  "type": "module",
+  "openclaw": {
+    "extensions": ["./dist/index.js"]
+  }
+}
