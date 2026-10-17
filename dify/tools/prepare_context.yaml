@@ -1,0 +1,97 @@
+identity:
+  name: prepare_context
+  author: valorbrain
+  label:
+    en_US: Prepare context
+    pt_BR: Preparar contexto
+description:
+  human:
+    en_US: Get ready-to-inject Markdown context from ValorBrain for a message, with the memory relevant to it. Put the text output in the prompt of an LLM node.
+    pt_BR: Obtém do ValorBrain contexto em Markdown pronto para injetar, com a memória relevante para uma mensagem. Coloque a saída de texto no prompt de um nó LLM.
+  llm: Get the long-term memory and briefing that ValorBrain has for the current request, as Markdown context. Use it before answering when earlier decisions, preferences or facts may matter.
+parameters:
+  - name: message
+    type: string
+    required: true
+    form: llm
+    label:
+      en_US: Message
+      pt_BR: Mensagem
+    human_description:
+      en_US: The task or question to prepare context for. In a Chatflow, insert {{#sys.query#}}.
+      pt_BR: A tarefa ou pergunta para a qual preparar contexto. Num Chatflow, insira {{#sys.query#}}.
+    llm_description: The current task or question, in natural language.
+  - name: scope
+    type: select
+    required: false
+    form: form
+    default: token
+    label:
+      en_US: Scope
+      pt_BR: Escopo
+    human_description:
+      en_US: Which memory to read. "Token default" reads everything the token can see. "Collection field" reads only Collection. "Dify end user" reads only the collection of the person who runs the app.
+      pt_BR: Qual memória ler. "Padrão do token" lê tudo o que o token enxerga. "Campo Coleção" lê só a Coleção. "Usuário final do Dify" lê só a coleção de quem roda o app.
+    options:
+      - value: token
+        label:
+          en_US: Token default
+          pt_BR: Padrão do token
+      - value: collection
+        label:
+          en_US: Collection field
+          pt_BR: Campo Coleção
+      - value: dify_user
+        label:
+          en_US: Dify end user
+          pt_BR: Usuário final do Dify
+  - name: collection
+    type: string
+    required: false
+    form: form
+    label:
+      en_US: Collection
+      pt_BR: Coleção
+    human_description:
+      en_US: The collection name when Scope is "Collection field". When Scope is "Dify end user", the prefix of the per-user collection (empty means dify-user).
+      pt_BR: O nome da coleção quando o Escopo é "Campo Coleção". Quando o Escopo é "Usuário final do Dify", o prefixo da coleção por usuário (vazio significa dify-user).
+    placeholder:
+      en_US: support-team
+  - name: recall_budget
+    type: number
+    required: false
+    form: form
+    min: 64
+    max: 2000
+    default: 600
+    label:
+      en_US: Recall budget
+      pt_BR: Orçamento de recall
+    human_description:
+      en_US: Token budget for recalled memory, from 64 to 2000. Default 600.
+      pt_BR: Orçamento em tokens para a memória recuperada, de 64 a 2000. Padrão 600.
+  - name: fast_mode
+    type: boolean
+    required: false
+    form: form
+    default: true
+    label:
+      en_US: Fast mode
+      pt_BR: Modo rápido
+    human_description:
+      en_US: Skip the slower funnel retrieval (about 0.2 s instead of 2 to 3 s). Recall still covers documents.
+      pt_BR: Pula a recuperação mais lenta do funil (cerca de 0,2 s em vez de 2 a 3 s). O recall continua cobrindo documentos.
+  - name: fail_open
+    type: boolean
+    required: false
+    form: form
+    default: true
+    label:
+      en_US: Continue when ValorBrain is down
+      pt_BR: Seguir quando o ValorBrain cair
+    human_description:
+      en_US: When ValorBrain cannot be reached, times out, or answers 429 or 5xx, return empty context instead of failing the run. Settings errors always fail.
+      pt_BR: Quando o ValorBrain não responde, estoura o tempo ou devolve 429 ou 5xx, devolve contexto vazio em vez de falhar a execução. Erro de configuração sempre falha.
+extra:
+  python:
+    source: tools/prepare_context.py

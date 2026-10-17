@@ -1,0 +1,48 @@
+identity:
+  author: valorbrain
+  name: valorbrain
+  label:
+    en_US: ValorBrain
+    pt_BR: ValorBrain
+  description:
+    en_US: ValorBrain is persistent memory for AI agents. Store memories, prepare ready-to-inject context, search memory, and forget documents.
+    pt_BR: ValorBrain é memória persistente para agentes de IA. Grave memórias, prepare contexto pronto para injetar, busque na memória e esqueça documentos.
+  icon: icon.svg
+  tags:
+    - productivity
+    - search
+    - rag
+credentials_for_provider:
+  api_token:
+    type: secret-input
+    required: true
+    label:
+      en_US: Token
+      pt_BR: Token
+    placeholder:
+      en_US: vbm_...
+    help:
+      en_US: A ValorBrain MCP token. It starts with vbm_ and decides the tenant. Create one with "npx -y @valorbrain/cli@latest init --agent --agent-caller dify --json".
+      pt_BR: Um token MCP do ValorBrain. Começa com vbm_ e define o tenant. Crie um com "npx -y @valorbrain/cli@latest init --agent --agent-caller dify --json".
+    url: https://valorbrain.com.br/connect.md
+  api_url:
+    type: text-input
+    required: false
+    default: https://valorbrain-api.valor.digital
+    label:
+      en_US: API URL
+      pt_BR: URL da API
+    placeholder:
+      en_US: https://valorbrain-api.valor.digital
+    help:
+      en_US: Keep the default unless you run your own ValorBrain engine. HTTPS is required, except for localhost and private-network hosts.
+      pt_BR: Mantenha o padrão, a menos que rode seu próprio engine do ValorBrain. HTTPS é obrigatório, exceto para localhost e hosts de rede privada.
+    url: https://docs.valorbrain.com.br
+tools:
+  - tools/store_memory.yaml
+  - tools/prepare_context.yaml
+  - tools/search_memory.yaml
+  - tools/forget_memory.yaml
+extra:
+  python:
+    source: provider/valorbrain.py

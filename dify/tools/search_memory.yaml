@@ -1,0 +1,103 @@
+identity:
+  name: search_memory
+  author: valorbrain
+  label:
+    en_US: Search memory
+    pt_BR: Buscar na memória
+description:
+  human:
+    en_US: Hybrid search (keyword, vector and rerank) over ValorBrain memory. Returns a text list with document IDs and the full JSON response.
+    pt_BR: Busca híbrida (palavra-chave, vetor e rerank) na memória do ValorBrain. Devolve uma lista em texto com os IDs dos documentos e a resposta JSON completa.
+  llm: Search long-term memory in ValorBrain for documents that help with the current request. Each result starts with its document ID, for example [#3b60cf].
+parameters:
+  - name: query
+    type: string
+    required: true
+    form: llm
+    label:
+      en_US: Query
+      pt_BR: Consulta
+    human_description:
+      en_US: What to look for, in natural language.
+      pt_BR: O que procurar, em linguagem natural.
+    llm_description: A natural-language question or the key words of the information you need from memory.
+  - name: scope
+    type: select
+    required: false
+    form: form
+    default: token
+    label:
+      en_US: Scope
+      pt_BR: Escopo
+    human_description:
+      en_US: Which memory to search. "Token default" searches everything the token can see. "Collection field" searches only Collection. "Dify end user" searches only the collection of the person who runs the app.
+      pt_BR: Em qual memória buscar. "Padrão do token" busca em tudo o que o token enxerga. "Campo Coleção" busca só na Coleção. "Usuário final do Dify" busca só na coleção de quem roda o app.
+    options:
+      - value: token
+        label:
+          en_US: Token default
+          pt_BR: Padrão do token
+      - value: collection
+        label:
+          en_US: Collection field
+          pt_BR: Campo Coleção
+      - value: dify_user
+        label:
+          en_US: Dify end user
+          pt_BR: Usuário final do Dify
+  - name: collection
+    type: string
+    required: false
+    form: form
+    label:
+      en_US: Collection
+      pt_BR: Coleção
+    human_description:
+      en_US: The collection name when Scope is "Collection field". When Scope is "Dify end user", the prefix of the per-user collection (empty means dify-user).
+      pt_BR: O nome da coleção quando o Escopo é "Campo Coleção". Quando o Escopo é "Usuário final do Dify", o prefixo da coleção por usuário (vazio significa dify-user).
+    placeholder:
+      en_US: support-team
+  - name: limit
+    type: number
+    required: false
+    form: form
+    min: 1
+    max: 50
+    default: 5
+    label:
+      en_US: Limit
+      pt_BR: Limite
+    human_description:
+      en_US: The maximum number of documents to return, from 1 to 50. Default 5.
+      pt_BR: O número máximo de documentos a devolver, de 1 a 50. Padrão 5.
+  - name: mode
+    type: select
+    required: false
+    form: form
+    default: auto
+    label:
+      en_US: Mode
+      pt_BR: Modo
+    human_description:
+      en_US: Retrieval mode. Auto lets ValorBrain choose.
+      pt_BR: Modo de recuperação. Auto deixa o ValorBrain escolher.
+    options:
+      - value: auto
+        label:
+          en_US: Auto
+          pt_BR: Auto
+      - value: hybrid
+        label:
+          en_US: Hybrid
+          pt_BR: Híbrido
+      - value: keyword
+        label:
+          en_US: Keyword
+          pt_BR: Palavra-chave
+      - value: semantic
+        label:
+          en_US: Semantic
+          pt_BR: Semântico
+extra:
+  python:
+    source: tools/search_memory.py
