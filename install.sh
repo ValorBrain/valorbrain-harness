@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # install.sh — deploy ValorBrain harness integrations from this repo's sources.
 #
-# Usage: ./install.sh <zcode|grok|hermes|openclaw|all>
+# Usage: ./install.sh <zcode|grok|hermes|openclaw|openclaw-self-hosted|all>
+# `all` installs zcode, grok and hermes. The OpenClaw plugins replace whatever sits in the
+# gateway's memory slot and need a gateway restart, so they are only installed by name.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -75,15 +77,24 @@ install_hermes() {
 }
 
 install_openclaw() {
-  echo "[openclaw] vendored dist → ~/.openclaw/extensions/valorbrain"
-  if [[ ! -f "$ROOT/openclaw/dist/index.js" ]]; then
-    echo "[openclaw] openclaw/dist missing — run scripts/vendor-from-engine.sh on a machine with the engine" >&2
+  echo "[openclaw] openclaw/ (hosted HTTP plugin) → openclaw plugins install"
+  command -v openclaw >/dev/null || { echo "[openclaw] openclaw CLI not found" >&2; return 1; }
+  # OpenClaw 2026.4.x can miss a freshly installed plugin through its manifest cache.
+  OPENCLAW_DISABLE_PLUGIN_DISCOVERY_CACHE=1 OPENCLAW_DISABLE_PLUGIN_MANIFEST_CACHE=1 \
+    openclaw plugins install "$ROOT/openclaw" --force
+  echo "[openclaw] installed — set VALORBRAIN_API_TOKEN for the gateway and restart it"
+}
+
+install_openclaw_self_hosted() {
+  echo "[openclaw-self-hosted] vendored dist → ~/.openclaw/extensions/valorbrain (needs the engine's valorbrain binary)"
+  if [[ ! -f "$ROOT/openclaw-self-hosted/dist/index.js" ]]; then
+    echo "[openclaw-self-hosted] dist missing — run scripts/vendor-from-engine.sh on a machine with the engine" >&2
     return 1
   fi
   mkdir -p "$HOME/.openclaw/extensions/valorbrain/dist"
-  cp "$ROOT/openclaw/dist/index.js" "$HOME/.openclaw/extensions/valorbrain/dist/index.js"
-  cp "$ROOT/openclaw/openclaw.plugin.json" "$HOME/.openclaw/extensions/valorbrain/" 2>/dev/null || true
-  echo "[openclaw] deployed"
+  cp "$ROOT/openclaw-self-hosted/dist/index.js" "$HOME/.openclaw/extensions/valorbrain/dist/index.js"
+  cp "$ROOT/openclaw-self-hosted/openclaw.plugin.json" "$ROOT/openclaw-self-hosted/package.json" "$HOME/.openclaw/extensions/valorbrain/"
+  echo "[openclaw-self-hosted] deployed"
 }
 
 case "$TARGET" in
@@ -91,6 +102,8 @@ case "$TARGET" in
   grok) install_grok ;;
   hermes) install_hermes ;;
   openclaw) install_openclaw ;;
-  all) install_zcode; install_grok; install_hermes; install_openclaw ;;
-  *) echo "Usage: $0 <zcode|grok|hermes|openclaw|all>"; exit 1 ;;
+  openclaw-self-hosted) install_openclaw_self_hosted ;;
+  all) install_zcode; install_grok; install_hermes
+       echo "[all] OpenClaw is not part of 'all': run ./install.sh openclaw explicitly" ;;
+  *) echo "Usage: $0 <zcode|grok|hermes|openclaw|openclaw-self-hosted|all>"; exit 1 ;;
 esac
