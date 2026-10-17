@@ -1,0 +1,21 @@
+{
+  "name": "valorbrain",
+  "description": "ValorBrain for Claude Code: durable memory through the official ValorBrain client and MCP server.",
+  "owner": {
+    "name": "Valor Digital",
+    "url": "https://valor.digital"
+  },
+  "plugins": [
+    {
+      "name": "valorbrain",
+      "source": "./claude-code/plugin",
+      "description": "Durable memory for Claude Code: context at session start and with every prompt, a memory checkpoint every few turns, and the ValorBrain MCP tools.",
+      "category": "productivity",
+      "tags": [
+        "memory",
+        "mcp",
+        "context"
+      ]
+    }
+  ]
+}

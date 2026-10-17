@@ -1,0 +1,19 @@
+{
+  "name": "valorbrain",
+  "displayName": "ValorBrain",
+  "version": "0.1.0",
+  "description": "Durable memory for Claude Code: context at session start and with every prompt, a memory checkpoint every few turns, and the ValorBrain MCP tools.",
+  "author": {
+    "name": "Valor Digital",
+    "url": "https://valor.digital"
+  },
+  "homepage": "https://github.com/ValorBrain/valorbrain-harness/tree/main/claude-code",
+  "repository": "https://github.com/ValorBrain/valorbrain-harness",
+  "license": "MIT",
+  "keywords": [
+    "memory",
+    "mcp",
+    "context",
+    "valorbrain"
+  ]
+}
