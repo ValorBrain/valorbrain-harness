@@ -1,10 +1,13 @@
 name: valorbrain
-version: 1.3.0
-description: "ValorBrain — hosted hybrid memory with composite scoring, graph traversal, and lifecycle management. Requires the valorbrain binary or a reachable valorbrain serve endpoint."
+version: "1.11.0"
+description: "ValorBrain — hosted hybrid memory (composite scoring, graph traversal, lifecycle) as a MemoryProvider plus MCP tools. Hosted: set VALORBRAIN_HOOKS_MODE=hosted + VALORBRAIN_ENGINE_URL + VALORBRAIN_API_TOKEN (npx @valorbrain/connect writes them). Self-hosted: the valorbrain binary."
+requires_hermes: ">=0.20"
 external_dependencies:
   - name: valorbrain
-    install: "Provided by Valor Digital (contact gustavo@valor.digital)"
+    install: "Hosted: none — https://github.com/ValorBrain/valorbrain-cli. Self-hosted: valorbrain binary."
     check: "valorbrain --version"
 hooks:
   - on_session_end
   - on_pre_compress
+provides_middleware:
+  - tool_execution

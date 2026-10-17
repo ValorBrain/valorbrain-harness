@@ -1,0 +1,337 @@
+From 2fcd900aff8448f285c9f814e4008cc9d86b3f67 Mon Sep 17 00:00:00 2001
+From: omp <omp@valor.digital>
+Date: Sat, 17 Oct 2026 11:24:58 -0300
+Subject: [PATCH 1/3] hermes-plugin: provider off in gateway sessions for
+ platform users the token does not speak for
+
+Hermes passes user_id to initialize() only in gateway sessions (Telegram, Discord, Slack, ...). One vbm_ token is one person's memory: every person talking to the bot recalled and wrote as the token's owner. The provider now stays off there unless VALORBRAIN_GATEWAY_USERS lists the platform user (or is *). CLI sessions are unchanged.
+---
+ packages/hermes-plugin/README.md              |   1 +
+ packages/hermes-plugin/__init__.py            |  42 +++-
+ .../tests/test_gateway_sessions.py            | 193 ++++++++++++++++++
+ 3 files changed, 235 insertions(+), 1 deletion(-)
+ create mode 100755 packages/hermes-plugin/tests/test_gateway_sessions.py
+
+diff --git a/packages/hermes-plugin/README.md b/packages/hermes-plugin/README.md
+index 01587bd..8a40fcc 100644
+--- a/packages/hermes-plugin/README.md
++++ b/packages/hermes-plugin/README.md
+@@ -166,6 +166,7 @@ triggers a heal.
+ | `VALORBRAIN_RUN_KIND` | `conversation`, `routine` or `pipeline`: sent as `X-Run-Kind`, over what the plugin infers. Other values are ignored |
+ | `VALORBRAIN_REQUESTED_BY` | who asked for this run (≤120 chars, accents folded to ASCII): sent as `X-Requested-By`, attribution only |
+ | `VALORBRAIN_AGENT_TEAM` | comma-separated team labels (≤5): sent as `X-Agent-Team` |
++| `VALORBRAIN_GATEWAY_USERS` | gateway sessions (Telegram, Discord, Slack, ...): comma-separated platform user ids this token speaks for, `*` for all. Unset = the provider is off in gateway sessions (one `vbm_` token is one person's memory). CLI sessions are not affected |
+ 
+ ## Links
+ 
+diff --git a/packages/hermes-plugin/__init__.py b/packages/hermes-plugin/__init__.py
+index b1a38a9..31608a9 100644
+--- a/packages/hermes-plugin/__init__.py
++++ b/packages/hermes-plugin/__init__.py
+@@ -419,6 +419,24 @@ def _hosted_mode() -> bool:
+     return (os.environ.get(_HOOKS_MODE_ENV) or "").strip().lower() == _HOOKS_MODE_HOSTED
+ 
+ 
++# Gateway sessions (Telegram, Discord, Slack, ...) carry the platform user they
++# serve in `initialize(user_id=...)`. A `vbm_` token is one person's memory, so
++# by default the provider stays off there: otherwise every person talking to the
++# bot would recall and write as the token's owner. VALORBRAIN_GATEWAY_USERS lists
++# the platform user ids this token speaks for (comma-separated; `*` = everyone,
++# for a bot only its owner uses).
++_GATEWAY_USERS_ENV = "VALORBRAIN_GATEWAY_USERS"
++
++
++def _gateway_user_allowed(user_id: Any, user_id_alt: Any = None) -> bool:
++    raw = os.environ.get(_GATEWAY_USERS_ENV) or ""
++    allowed = {v.strip() for v in raw.split(",") if v.strip()}
++    if "*" in allowed:
++        return True
++    ids = {str(v).strip() for v in (user_id, user_id_alt) if v is not None} - {""}
++    return bool(allowed & ids)
++
++
+ def _engine_url() -> Optional[str]:
+     """REST base of the engine from VALORBRAIN_ENGINE_URL (or VALORBRAIN_API_URL)."""
+     url = os.environ.get("VALORBRAIN_ENGINE_URL") or os.environ.get("VALORBRAIN_API_URL")
+@@ -978,6 +996,9 @@ class ValorBrainProvider(MemoryProvider):
+         self._session_source: str = ""
+         # X-Run-Kind this session declares (`_run_kind`); '' = not known.
+         self._run_kind: str = ""
++        # Gateway session for a platform user this token does not speak for
++        # (`_gateway_user_allowed`): the provider stays off for the session.
++        self._gateway_off: bool = False
+ 
+         # Prefetch state (generation counter prevents stale overwrites)
+         self._prefetch_result: str = ""
+@@ -1087,6 +1108,15 @@ class ValorBrainProvider(MemoryProvider):
+         return _engine_url() is not None
+ 
+     def initialize(self, session_id: str, **kwargs) -> None:
++        self._gateway_off = False
++        if kwargs.get("user_id") and not _gateway_user_allowed(kwargs.get("user_id"), kwargs.get("user_id_alt")):
++            self._gateway_off = True
++            logger.info(
++                "valorbrain: off for this gateway session — the platform user is not in %s "
++                "(one vbm_ token is one person's memory)",
++                _GATEWAY_USERS_ENV,
++            )
++            return
+         self._bin = _find_valorbrain_bin()
+         hosted = _hosted_mode()
+         if not self._bin and not self._remote_engine():
+@@ -1220,6 +1250,8 @@ class ValorBrainProvider(MemoryProvider):
+ 
+     def _has_hooks(self) -> bool:
+         """Hooks rodam local (binário) ou no engine via REST (hospedado)."""
++        if self._gateway_off:
++            return False
+         return bool(self._bin) or self._remote_engine()
+ 
+     def _transcript_enabled(self) -> bool:
+@@ -1237,6 +1269,8 @@ class ValorBrainProvider(MemoryProvider):
+         MESMO código com o tenant do token; o cliente só manda o transcript (o
+         engine não lê o disco dele).
+         """
++        if self._gateway_off:
++            return None
+         if self._bin:
+             return _run_hook(
+                 self._bin, hook_name, hook_input,
+@@ -1516,6 +1550,8 @@ class ValorBrainProvider(MemoryProvider):
+ 
+     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
+         """Background: run context-surfacing hook for next turn."""
++        if self._gateway_off:
++            return
+         self._maybe_heartbeat_runtime(session_id)
+         if not query or len(query) < 5:
+             return
+@@ -1624,7 +1660,7 @@ class ValorBrainProvider(MemoryProvider):
+         Suppressed for non-primary agent contexts (subagent/cron/flush) so the
+         vault never absorbs system-prompt or background-task content.
+         """
+-        if self._agent_context != "primary":
++        if self._agent_context != "primary" or self._gateway_off:
+             return
+         if not self._transcript_path or not self._transcript_enabled():
+             return
+@@ -1762,6 +1798,8 @@ class ValorBrainProvider(MemoryProvider):
+     # -- Tools (REST API) ------------------------------------------------------
+ 
+     def get_tool_schemas(self) -> List[Dict[str, Any]]:
++        if self._gateway_off:
++            return []
+         return [
+             RETRIEVE_SCHEMA, GET_SCHEMA, SESSION_LOG_SCHEMA,
+             TIMELINE_SCHEMA, SIMILAR_SCHEMA,
+@@ -1770,6 +1808,8 @@ class ValorBrainProvider(MemoryProvider):
+         ]
+ 
+     def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
++        if self._gateway_off:
++            return json.dumps({"error": f"ValorBrain is off for this gateway session (see {_GATEWAY_USERS_ENV})"})
+         try:
+             if tool_name == "valorbrain_retrieve":
+                 return self._tool_retrieve(args)
+diff --git a/packages/hermes-plugin/tests/test_gateway_sessions.py b/packages/hermes-plugin/tests/test_gateway_sessions.py
+new file mode 100755
+index 0000000..713be25
+--- /dev/null
++++ b/packages/hermes-plugin/tests/test_gateway_sessions.py
+@@ -0,0 +1,193 @@
++#!/usr/bin/env python3
++"""Offline tests: a gateway session for someone else is not the token's memory.
++
++Hermes passes `user_id` (and maybe `user_id_alt`) to `initialize()` only in
++gateway sessions (Telegram, Discord, Slack, ...). One `vbm_` token is one
++person's memory, so the provider stays off there unless
++VALORBRAIN_GATEWAY_USERS names that platform user (or is `*`): no recall, no
++transcript, no extraction, no tools, no request at all.
++
++The network is a real local HTTP server; the Hermes SDK (`agent.memory_provider`)
++is a stub in `sys.modules`.
++
++Run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s packages/hermes-plugin/tests -v
++"""
++from __future__ import annotations
++
++import importlib.util
++import json
++import os
++import sys
++import tempfile
++import threading
++import types
++import unittest
++from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
++from pathlib import Path
++
++PLUGIN = Path(__file__).resolve().parents[1] / "__init__.py"
++
++
++def _load_plugin():
++    agent_mod = types.ModuleType("agent")
++    provider_mod = types.ModuleType("agent.memory_provider")
++
++    class MemoryProvider:  # the plugin only subclasses it
++        pass
++
++    provider_mod.MemoryProvider = MemoryProvider
++    agent_mod.memory_provider = provider_mod
++    sys.modules.setdefault("agent", agent_mod)
++    sys.modules.setdefault("agent.memory_provider", provider_mod)
++    spec = importlib.util.spec_from_file_location("_hermes_plugin_gateway", PLUGIN)
++    mod = importlib.util.module_from_spec(spec)
++    sys.modules["_hermes_plugin_gateway"] = mod
++    spec.loader.exec_module(mod)
++    return mod
++
++
++vb = _load_plugin()
++
++TOKEN = "vbm_gatewaytest_0123456789"
++ENV_KEYS = (
++    "VALORBRAIN_HOOKS_MODE", "VALORBRAIN_ENGINE_URL", "VALORBRAIN_API_URL",
++    "VALORBRAIN_API_TOKEN", "VALORBRAIN_TENANT_ID", "VALORBRAIN_DEFAULT_TENANT_ID",
++    "VALORBRAIN_USER_ID", "VALORBRAIN_BIN", "CLAWMEM_BIN", "VALORBRAIN_SERVE_PORT",
++    "VALORBRAIN_SEND_TRANSCRIPT", "VALORBRAIN_SEND_PROMPT", "VALORBRAIN_SOURCE_AGENT",
++    "VALORBRAIN_RUN_KIND", "VALORBRAIN_GATEWAY_USERS",
++    "HERMES_SESSION_SOURCE", "HERMES_SINGLE_QUERY_SESSION", "PATH", "HOME",
++)
++
++
++class _Stub(BaseHTTPRequestHandler):
++    requests: list = []
++
++    def log_message(self, *_a):
++        pass
++
++    def _record(self):
++        length = int(self.headers.get("Content-Length") or 0)
++        if length:
++            self.rfile.read(length)
++        _Stub.requests.append(self.path.split("?", 1)[0])
++
++    def _reply(self, payload: dict):
++        data = json.dumps(payload).encode()
++        self.send_response(200)
++        self.send_header("Content-Type", "application/json")
++        self.send_header("Content-Length", str(len(data)))
++        self.end_headers()
++        self.wfile.write(data)
++
++    def do_GET(self):
++        self._record()
++        self._reply({})
++
++    def do_POST(self):
++        self._record()
++        self._reply({"ok": True, "context": "<vault-context>recalled</vault-context>"})
++
++
++class GatewaySessionTest(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), _Stub)
++        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
++        cls.url = f"http://127.0.0.1:{cls.server.server_address[1]}"
++
++    @classmethod
++    def tearDownClass(cls):
++        cls.server.shutdown()
++
++    def setUp(self):
++        self._env = {k: os.environ.get(k) for k in ENV_KEYS}
++        for k in ENV_KEYS:
++            os.environ.pop(k, None)
++        self._tmp = tempfile.TemporaryDirectory()
++        self.root = Path(self._tmp.name)
++        os.environ["HOME"] = str(self.root)
++        os.environ["PATH"] = str(self.root / "bin")  # no node: no heal
++        os.environ["VALORBRAIN_HOOKS_MODE"] = "hosted"
++        os.environ["VALORBRAIN_ENGINE_URL"] = self.url
++        os.environ["VALORBRAIN_API_TOKEN"] = TOKEN
++        os.environ["VALORBRAIN_SEND_TRANSCRIPT"] = "on"
++        _Stub.requests = []
++        vb._own_install_id = None
++        vb._warned_no_launcher = False
++        vb._heal_mem = {}
++
++    def tearDown(self):
++        for k, v in self._env.items():
++            if v is None:
++                os.environ.pop(k, None)
++            else:
++                os.environ[k] = v
++        self._tmp.cleanup()
++
++    def _session(self, **kwargs):
++        p = vb.ValorBrainProvider()
++        p.initialize("sess-gateway", hermes_home=str(self.root / ".hermes"), **kwargs)
++        return p
++
++    def _full_turn(self, p):
++        """Everything Hermes calls in a session, in order."""
++        p.system_prompt_block()
++        p.queue_prefetch("what did we decide about pricing?")
++        if p._prefetch_thread:
++            p._prefetch_thread.join(timeout=5)
++        context = p.prefetch("what did we decide about pricing?")
++        p.sync_turn("what did we decide about pricing?", "We kept the old price.")
++        p.on_pre_compress([])
++        p.on_session_end([])
++        return context
++
++    def test_gateway_user_without_allowlist_is_off_and_silent(self):
++        p = self._session(platform="telegram", user_id="tg:111")
++        self.assertEqual(self._full_turn(p), "")
++        self.assertEqual(p.system_prompt_block(), "")
++        self.assertEqual(p.get_tool_schemas(), [])
++        self.assertIn("error", json.loads(p.handle_tool_call("valorbrain_retrieve", {"query": "x"})))
++        self.assertEqual(_Stub.requests, [], "a gateway session for someone else reached the engine")
++        self.assertFalse((self.root / ".hermes" / "valorbrain-transcripts").exists())
++
++    def test_gateway_user_not_in_allowlist_is_off(self):
++        os.environ["VALORBRAIN_GATEWAY_USERS"] = "tg:999, tg:222"
++        p = self._session(platform="telegram", user_id="tg:111")
++        self._full_turn(p)
++        self.assertEqual(_Stub.requests, [])
++
++    def test_listed_gateway_user_is_served(self):
++        os.environ["VALORBRAIN_GATEWAY_USERS"] = "tg:999, tg:111"
++        p = self._session(platform="telegram", user_id="tg:111")
++        context = self._full_turn(p)
++        self.assertIn("recalled", context)
++        self.assertIn("/api/v1/hooks/run", _Stub.requests)
++        self.assertTrue(p.get_tool_schemas())
++
++    def test_alt_user_id_matches_too(self):
++        os.environ["VALORBRAIN_GATEWAY_USERS"] = "owner@example.com"
++        p = self._session(platform="slack", user_id="U123", user_id_alt="owner@example.com")
++        self._full_turn(p)
++        self.assertIn("/api/v1/hooks/run", _Stub.requests)
++
++    def test_star_serves_every_gateway_user(self):
++        os.environ["VALORBRAIN_GATEWAY_USERS"] = "*"
++        p = self._session(platform="discord", user_id="d:5")
++        self._full_turn(p)
++        self.assertIn("/api/v1/hooks/run", _Stub.requests)
++
++    def test_cli_session_is_not_affected(self):
++        p = self._session(platform="cli")
++        context = self._full_turn(p)
++        self.assertIn("recalled", context)
++        self.assertTrue(p.get_tool_schemas())
++
++    def test_reinitialize_clears_the_gateway_switch(self):
++        p = self._session(platform="telegram", user_id="tg:111")
++        self.assertEqual(p.get_tool_schemas(), [])
++        p.initialize("sess-cli", hermes_home=str(self.root / ".hermes"), platform="cli")
++        self.assertTrue(p.get_tool_schemas())
++
++
++if __name__ == "__main__":
++    unittest.main()
+-- 
+2.55.0
+

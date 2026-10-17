@@ -1,0 +1,196 @@
+From 183e7ab483bed08790e1a149864f5da3f9a8251a Mon Sep 17 00:00:00 2001
+From: omp <omp@valor.digital>
+Date: Sat, 17 Oct 2026 11:25:07 -0300
+Subject: [PATCH 3/3] hermes-plugin: catalog installs never self-heal; ignore
+ bytecode
+
+Hermes plugin-catalog rule 3 (no self-updating code): a copy installed by 'hermes plugins install' (.hermes-catalog.json beside it) never starts the connect heal; it moves only through a reviewed SHA bump. Rule 17 (no committed .pyc): bytecode is ignored; remove the tracked cache with: git rm -r packages/hermes-plugin/__pycache__
+---
+ packages/hermes-plugin/.gitignore             |   2 +
+ packages/hermes-plugin/README.md              |   5 +-
+ packages/hermes-plugin/__init__.py            |  19 ++-
+ .../tests/test_catalog_install.py             | 109 ++++++++++++++++++
+ 4 files changed, 132 insertions(+), 3 deletions(-)
+ create mode 100644 packages/hermes-plugin/.gitignore
+ create mode 100755 packages/hermes-plugin/tests/test_catalog_install.py
+
+diff --git a/packages/hermes-plugin/.gitignore b/packages/hermes-plugin/.gitignore
+new file mode 100644
+index 0000000..7a60b85
+--- /dev/null
++++ b/packages/hermes-plugin/.gitignore
+@@ -0,0 +1,2 @@
++__pycache__/
++*.pyc
+diff --git a/packages/hermes-plugin/README.md b/packages/hermes-plugin/README.md
+index 8a40fcc..723837c 100644
+--- a/packages/hermes-plugin/README.md
++++ b/packages/hermes-plugin/README.md
+@@ -149,7 +149,10 @@ triggers one heal. Without `node`/`bun` on `PATH` or without the launcher,
+ nothing runs: the plugin keeps reporting its version and the engine shows the
+ install as behind. The plugin heals only with `VALORBRAIN_HOOKS_MODE=hosted`:
+ self-hosted (the local binary, or a remote engine without that switch) never
+-triggers a heal.
++triggers a heal. A copy installed from the Hermes catalog (`hermes plugins
++install valorbrain`, which writes `.hermes-catalog.json` beside the plugin)
++never heals either: it moves only to a reviewed pin, through
++`hermes plugins update valorbrain`.
+ 
+ ## Environment
+ 
+diff --git a/packages/hermes-plugin/__init__.py b/packages/hermes-plugin/__init__.py
+index 6919f57..aa98729 100644
+--- a/packages/hermes-plugin/__init__.py
++++ b/packages/hermes-plugin/__init__.py
+@@ -371,6 +371,20 @@ def _merge_heal(file_state: dict, mem: dict) -> dict:
+     return out
+ 
+ 
++# Written by `hermes plugins install <name>` beside a catalog install. The
++# Hermes catalog pins an exact reviewed sha and forbids self-updating code
++# (plugin-catalog/README.md, rule 3): such a copy moves only through a SHA-bump
++# PR and `hermes plugins update`, never through the connect heal.
++_HERMES_CATALOG_SIDECAR = ".hermes-catalog.json"
++
++
++def _catalog_install() -> bool:
++    try:
++        return (Path(__file__).resolve().parent / _HERMES_CATALOG_SIDECAR).exists()
++    except Exception:
++        return False
++
++
+ def _maybe_heal(response: Any) -> None:
+     """Auto-atualização (contrato C). Com `node` (ou `bun`) no PATH e o launcher
+     do connect instalado, um pin novo na resposta ou 6 h disparam
+@@ -379,9 +393,10 @@ def _maybe_heal(response: Any) -> None:
+     próximo início. Sem runtime ou sem launcher, nada: o plugin segue
+     reportando a versão (o engine o mostra como atrasado). Só no modo
+     hospedado (VALORBRAIN_HOOKS_MODE=hosted): um plugin self-hosted contra um
+-    engine remoto não recebe o manifesto hospedado."""
++    engine remoto não recebe o manifesto hospedado. Nunca numa instalação do
++    catálogo do Hermes (`_catalog_install`)."""
+     global _warned_no_launcher, _heal_mem
+-    if not _hosted_mode():
++    if not _hosted_mode() or _catalog_install():
+         return
+     try:
+         pin = None
+diff --git a/packages/hermes-plugin/tests/test_catalog_install.py b/packages/hermes-plugin/tests/test_catalog_install.py
+new file mode 100755
+index 0000000..14bfbea
+--- /dev/null
++++ b/packages/hermes-plugin/tests/test_catalog_install.py
+@@ -0,0 +1,109 @@
++#!/usr/bin/env python3
++"""Offline tests: a Hermes catalog install never heals itself.
++
++`hermes plugins install valorbrain` writes `.hermes-catalog.json` beside the
++plugin. The catalog pins an exact reviewed sha and forbids self-updating code
++(plugin-catalog/README.md, rule 3), so with that file present the plugin never
++starts the connect launcher's heal, even with node, the launcher and a new pin.
++Without it (a connect install) the heal still runs.
++
++The heal child is a fake `node` on PATH that records its argv.
++
++Run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s packages/hermes-plugin/tests -v
++"""
++from __future__ import annotations
++
++import importlib.util
++import json
++import os
++import shutil
++import sys
++import tempfile
++import time
++import types
++import unittest
++from pathlib import Path
++
++PLUGIN = Path(__file__).resolve().parents[1] / "__init__.py"
++ENV_KEYS = ("VALORBRAIN_HOOKS_MODE", "PATH", "HOME")
++
++
++def _load_plugin_from(directory: Path, name: str):
++    agent_mod = types.ModuleType("agent")
++    provider_mod = types.ModuleType("agent.memory_provider")
++
++    class MemoryProvider:  # the plugin only subclasses it
++        pass
++
++    provider_mod.MemoryProvider = MemoryProvider
++    agent_mod.memory_provider = provider_mod
++    sys.modules.setdefault("agent", agent_mod)
++    sys.modules.setdefault("agent.memory_provider", provider_mod)
++    spec = importlib.util.spec_from_file_location(name, directory / "__init__.py")
++    mod = importlib.util.module_from_spec(spec)
++    sys.modules[name] = mod
++    spec.loader.exec_module(mod)
++    return mod
++
++
++class CatalogInstallHealTest(unittest.TestCase):
++    def setUp(self):
++        self._env = {k: os.environ.get(k) for k in ENV_KEYS}
++        self._tmp = tempfile.TemporaryDirectory()
++        self.root = Path(self._tmp.name)
++        os.environ["HOME"] = str(self.root)
++        bindir = self.root / "bin"
++        bindir.mkdir()
++        os.environ["PATH"] = str(bindir)
++        os.environ["VALORBRAIN_HOOKS_MODE"] = "hosted"
++        self.heal_log = self.root / "heal-calls.log"
++        node = bindir / "node"
++        node.write_text(f'#!/bin/sh\necho "$@" >> "{self.heal_log}"\n')
++        node.chmod(0o755)
++        connect = self.root / ".valorbrain" / "bin" / "connect"
++        connect.mkdir(parents=True)
++        (connect / "launcher.mjs").write_text("// fake launcher\n")
++        (connect / "current.json").write_text(json.dumps({"version": "1.0.0"}))
++
++    def tearDown(self):
++        for k, v in self._env.items():
++            if v is None:
++                os.environ.pop(k, None)
++            else:
++                os.environ[k] = v
++        self._tmp.cleanup()
++
++    def _install(self, name: str, catalog: bool):
++        target = self.root / ".hermes" / "plugins" / name
++        target.mkdir(parents=True)
++        shutil.copy(PLUGIN, target / "__init__.py")
++        if catalog:
++            (target / ".hermes-catalog.json").write_text(json.dumps({
++                "catalog_name": "valorbrain", "repo": "https://github.com/ValorBrain/valorbrain-cli",
++                "sha": "0" * 40, "tier": "community",
++            }))
++        return _load_plugin_from(target, f"_hermes_plugin_catalog_{name}")
++
++    def _heal_calls(self, wait: float) -> list:
++        deadline = time.time() + wait
++        while time.time() < deadline:
++            if self.heal_log.exists():
++                break
++            time.sleep(0.02)
++        return self.heal_log.read_text().splitlines() if self.heal_log.exists() else []
++
++    def test_catalog_install_never_heals(self):
++        mod = self._install("catalog", catalog=True)
++        mod._maybe_heal({"client_pin": {"version": "9.9.9"}})
++        self.assertEqual(self._heal_calls(wait=1.0), [])
++
++    def test_connect_install_still_heals(self):
++        mod = self._install("connect", catalog=False)
++        mod._maybe_heal({"client_pin": {"version": "9.9.9"}})
++        calls = self._heal_calls(wait=5.0)
++        self.assertEqual(len(calls), 1)
++        self.assertTrue(calls[0].endswith("heal --harness=hermes"))
++
++
++if __name__ == "__main__":
++    unittest.main()
+-- 
+2.55.0
+
