@@ -45,7 +45,8 @@ npx -y @valorbrain/connect@latest --token <vbm_…> --harness <claude-code|codex
 ```
 
 `openclaw-self-hosted/` keeps the older OpenClaw build that drives a self-hosted engine binary;
-new installs should use `openclaw/`.
+new installs should use `openclaw/`. Before November 2026, `./install.sh openclaw` installed that
+self-hosted build and `all` included it; for it, run `./install.sh openclaw-self-hosted`.
 
 "Tested" means a real run on 2026-10-17 against a ValorBrain engine, with the host software at that
 version, in an isolated home directory. Each integration's README has the exact steps and limits.
