@@ -1,4 +1,4 @@
-From 2fcd900aff8448f285c9f814e4008cc9d86b3f67 Mon Sep 17 00:00:00 2001
+From f8ef7b2a7a58f31f37f6ecfdff9aa534b6219c24 Mon Sep 17 00:00:00 2001
 From: omp <omp@valor.digital>
 Date: Sat, 17 Oct 2026 11:24:58 -0300
 Subject: [PATCH 1/3] hermes-plugin: provider off in gateway sessions for
@@ -13,10 +13,10 @@ Hermes passes user_id to initialize() only in gateway sessions (Telegram, Discor
  create mode 100755 packages/hermes-plugin/tests/test_gateway_sessions.py
 
 diff --git a/packages/hermes-plugin/README.md b/packages/hermes-plugin/README.md
-index 01587bd..8a40fcc 100644
+index b8dd7ce..af62437 100644
 --- a/packages/hermes-plugin/README.md
 +++ b/packages/hermes-plugin/README.md
-@@ -166,6 +166,7 @@ triggers a heal.
+@@ -188,6 +188,7 @@ triggers a heal.
  | `VALORBRAIN_RUN_KIND` | `conversation`, `routine` or `pipeline`: sent as `X-Run-Kind`, over what the plugin infers. Other values are ignored |
  | `VALORBRAIN_REQUESTED_BY` | who asked for this run (≤120 chars, accents folded to ASCII): sent as `X-Requested-By`, attribution only |
  | `VALORBRAIN_AGENT_TEAM` | comma-separated team labels (≤5): sent as `X-Agent-Team` |
@@ -25,10 +25,10 @@ index 01587bd..8a40fcc 100644
  ## Links
  
 diff --git a/packages/hermes-plugin/__init__.py b/packages/hermes-plugin/__init__.py
-index b1a38a9..31608a9 100644
+index 571cf71..b0ce708 100644
 --- a/packages/hermes-plugin/__init__.py
 +++ b/packages/hermes-plugin/__init__.py
-@@ -419,6 +419,24 @@ def _hosted_mode() -> bool:
+@@ -444,6 +444,24 @@ def _hosted_mode() -> bool:
      return (os.environ.get(_HOOKS_MODE_ENV) or "").strip().lower() == _HOOKS_MODE_HOSTED
  
  
@@ -53,7 +53,7 @@ index b1a38a9..31608a9 100644
  def _engine_url() -> Optional[str]:
      """REST base of the engine from VALORBRAIN_ENGINE_URL (or VALORBRAIN_API_URL)."""
      url = os.environ.get("VALORBRAIN_ENGINE_URL") or os.environ.get("VALORBRAIN_API_URL")
-@@ -978,6 +996,9 @@ class ValorBrainProvider(MemoryProvider):
+@@ -1047,6 +1065,9 @@ class ValorBrainProvider(MemoryProvider):
          self._session_source: str = ""
          # X-Run-Kind this session declares (`_run_kind`); '' = not known.
          self._run_kind: str = ""
@@ -63,7 +63,7 @@ index b1a38a9..31608a9 100644
  
          # Prefetch state (generation counter prevents stale overwrites)
          self._prefetch_result: str = ""
-@@ -1087,6 +1108,15 @@ class ValorBrainProvider(MemoryProvider):
+@@ -1156,6 +1177,15 @@ class ValorBrainProvider(MemoryProvider):
          return _engine_url() is not None
  
      def initialize(self, session_id: str, **kwargs) -> None:
@@ -79,7 +79,7 @@ index b1a38a9..31608a9 100644
          self._bin = _find_valorbrain_bin()
          hosted = _hosted_mode()
          if not self._bin and not self._remote_engine():
-@@ -1220,6 +1250,8 @@ class ValorBrainProvider(MemoryProvider):
+@@ -1289,6 +1319,8 @@ class ValorBrainProvider(MemoryProvider):
  
      def _has_hooks(self) -> bool:
          """Hooks rodam local (binário) ou no engine via REST (hospedado)."""
@@ -88,7 +88,7 @@ index b1a38a9..31608a9 100644
          return bool(self._bin) or self._remote_engine()
  
      def _transcript_enabled(self) -> bool:
-@@ -1237,6 +1269,8 @@ class ValorBrainProvider(MemoryProvider):
+@@ -1306,6 +1338,8 @@ class ValorBrainProvider(MemoryProvider):
          MESMO código com o tenant do token; o cliente só manda o transcript (o
          engine não lê o disco dele).
          """
@@ -97,7 +97,7 @@ index b1a38a9..31608a9 100644
          if self._bin:
              return _run_hook(
                  self._bin, hook_name, hook_input,
-@@ -1516,6 +1550,8 @@ class ValorBrainProvider(MemoryProvider):
+@@ -1585,6 +1619,8 @@ class ValorBrainProvider(MemoryProvider):
  
      def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
          """Background: run context-surfacing hook for next turn."""
@@ -106,7 +106,7 @@ index b1a38a9..31608a9 100644
          self._maybe_heartbeat_runtime(session_id)
          if not query or len(query) < 5:
              return
-@@ -1624,7 +1660,7 @@ class ValorBrainProvider(MemoryProvider):
+@@ -1693,7 +1729,7 @@ class ValorBrainProvider(MemoryProvider):
          Suppressed for non-primary agent contexts (subagent/cron/flush) so the
          vault never absorbs system-prompt or background-task content.
          """
@@ -115,7 +115,7 @@ index b1a38a9..31608a9 100644
              return
          if not self._transcript_path or not self._transcript_enabled():
              return
-@@ -1762,6 +1798,8 @@ class ValorBrainProvider(MemoryProvider):
+@@ -1831,6 +1867,8 @@ class ValorBrainProvider(MemoryProvider):
      # -- Tools (REST API) ------------------------------------------------------
  
      def get_tool_schemas(self) -> List[Dict[str, Any]]:
@@ -124,7 +124,7 @@ index b1a38a9..31608a9 100644
          return [
              RETRIEVE_SCHEMA, GET_SCHEMA, SESSION_LOG_SCHEMA,
              TIMELINE_SCHEMA, SIMILAR_SCHEMA,
-@@ -1770,6 +1808,8 @@ class ValorBrainProvider(MemoryProvider):
+@@ -1839,6 +1877,8 @@ class ValorBrainProvider(MemoryProvider):
          ]
  
      def handle_tool_call(self, tool_name: str, args: Dict[str, Any], **kwargs) -> str:
@@ -333,5 +333,5 @@ index 0000000..713be25
 +if __name__ == "__main__":
 +    unittest.main()
 -- 
-2.55.0
+2.56.1
 

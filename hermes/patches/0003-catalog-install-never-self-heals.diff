@@ -1,4 +1,4 @@
-From 183e7ab483bed08790e1a149864f5da3f9a8251a Mon Sep 17 00:00:00 2001
+From 60d0d9f9be0d43c00142b11936e6ccfde0b9a3c5 Mon Sep 17 00:00:00 2001
 From: omp <omp@valor.digital>
 Date: Sat, 17 Oct 2026 11:25:07 -0300
 Subject: [PATCH 3/3] hermes-plugin: catalog installs never self-heal; ignore
@@ -23,10 +23,10 @@ index 0000000..7a60b85
 +__pycache__/
 +*.pyc
 diff --git a/packages/hermes-plugin/README.md b/packages/hermes-plugin/README.md
-index 8a40fcc..723837c 100644
+index af62437..c12bc3a 100644
 --- a/packages/hermes-plugin/README.md
 +++ b/packages/hermes-plugin/README.md
-@@ -149,7 +149,10 @@ triggers one heal. Without `node`/`bun` on `PATH` or without the launcher,
+@@ -170,7 +170,10 @@ triggers one heal. Without `node`/`bun` on `PATH` or without the launcher,
  nothing runs: the plugin keeps reporting its version and the engine shows the
  install as behind. The plugin heals only with `VALORBRAIN_HOOKS_MODE=hosted`:
  self-hosted (the local binary, or a remote engine without that switch) never
@@ -39,10 +39,10 @@ index 8a40fcc..723837c 100644
  ## Environment
  
 diff --git a/packages/hermes-plugin/__init__.py b/packages/hermes-plugin/__init__.py
-index 6919f57..aa98729 100644
+index 4618387..ac109bf 100644
 --- a/packages/hermes-plugin/__init__.py
 +++ b/packages/hermes-plugin/__init__.py
-@@ -371,6 +371,20 @@ def _merge_heal(file_state: dict, mem: dict) -> dict:
+@@ -396,6 +396,20 @@ def _merge_heal(file_state: dict, mem: dict) -> dict:
      return out
  
  
@@ -63,7 +63,7 @@ index 6919f57..aa98729 100644
  def _maybe_heal(response: Any) -> None:
      """Auto-atualização (contrato C). Com `node` (ou `bun`) no PATH e o launcher
      do connect instalado, um pin novo na resposta ou 6 h disparam
-@@ -379,9 +393,10 @@ def _maybe_heal(response: Any) -> None:
+@@ -404,9 +418,10 @@ def _maybe_heal(response: Any) -> None:
      próximo início. Sem runtime ou sem launcher, nada: o plugin segue
      reportando a versão (o engine o mostra como atrasado). Só no modo
      hospedado (VALORBRAIN_HOOKS_MODE=hosted): um plugin self-hosted contra um
@@ -192,5 +192,5 @@ index 0000000..14bfbea
 +if __name__ == "__main__":
 +    unittest.main()
 -- 
-2.55.0
+2.56.1
 

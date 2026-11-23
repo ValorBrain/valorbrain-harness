@@ -15,8 +15,8 @@ then run `./sync.sh`.
 
 | | |
 |---|---|
-| Plugin version | 1.11.0 (`valorbrain-cli@dba2802`) |
-| Tested with | Hermes Agent 0.22.0, hosted mode, 2026-10-17 (see [Tests](#tests)) |
+| Plugin version | 1.12.1 (`valorbrain-cli@068a0ef`) |
+| Tested with | Hermes Agent 0.22.0, hosted mode, 2026-10-17, with plugin 1.11.0 (see [Tests](#tests)). For 1.12.1: the offline tests pass and the provider loads in Hermes 0.23.3 (2026-11-23); its live round trip was not re-run because the staging token was inactive |
 | Requires | Hermes ≥ 0.20, Python ≥ 3.10, no third-party dependency (`httpx` from Hermes is used when present, `urllib` otherwise) |
 | License | MIT |
 
@@ -85,7 +85,7 @@ no fallback to `127.0.0.1`, and no `X-Tenant-ID` / `X-User-ID` header (the token
 decides tenant and user). Self-hosted: leave `VALORBRAIN_HOOKS_MODE` unset and
 put the `valorbrain` binary on `PATH` (or `VALORBRAIN_BIN`). The full variable
 list is in the
-[canonical README](https://github.com/ValorBrain/valorbrain-cli/tree/dba280261334420fea55b18b21215998444460a2/packages/hermes-plugin#environment).
+[canonical README](https://github.com/ValorBrain/valorbrain-cli/tree/068a0ef5b6c6ec0eeee04467a89336c75839bf7f/packages/hermes-plugin#environment).
 
 ## What leaves the machine, and when (hosted mode)
 
@@ -113,7 +113,7 @@ may rewrite `~/.hermes/plugins/valorbrain`. Without the launcher nothing runs.
 [`patches/0003`](patches/0003-catalog-install-never-self-heals.diff) keeps catalog
 installs from ever doing this.
 
-**Messaging-gateway sessions.** In 1.11.0 a gateway session (Telegram, Discord,
+**Messaging-gateway sessions.** In 1.12.1 a gateway session (Telegram, Discord,
 Slack, …) is served with the one configured token for every person who talks to
 the bot, so their recall and writes land in the token owner's memory. Use it only
 on a bot that serves its token's owner. [`patches/0001`](patches/0001-gateway-sessions-off-unless-listed.diff)
@@ -142,7 +142,7 @@ commit that is not on a remote branch, and rewrites `VENDORED_FROM`.
 
 ## Patches proposed upstream
 
-`patches/` holds a `git format-patch` series against `valorbrain-cli@dba2802`,
+`patches/` holds a `git format-patch` series against `valorbrain-cli@068a0ef`,
 in order, each with its test. Apply with `git am hermes/patches/*.diff` in a
 `valorbrain-cli` checkout, then run
 `python3 -m unittest discover -s packages/hermes-plugin/tests`.
