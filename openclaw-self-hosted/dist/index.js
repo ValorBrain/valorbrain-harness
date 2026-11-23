@@ -1,29 +1,16 @@
-var __defProp = Object.defineProperty;
-var __returnValue = (v) => v;
-function __exportSetter(name, newValue) {
-  this[name] = __returnValue.bind(null, newValue);
-}
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, {
-      get: all[name],
-      enumerable: true,
-      configurable: true,
-      set: __exportSetter.bind(all, name)
-    });
+var __esm = (fn, res, err) => () => {
+  if (fn)
+    try {
+      res = fn(fn = 0);
+    } catch (e) {
+      err = [e];
+    }
+  if (err)
+    throw err[0];
+  return res;
 };
-var __esm = (fn, res) => () => (fn && (res = fn(fn = 0)), res);
 
 // src/openclaw/shell.ts
-var exports_shell = {};
-__export(exports_shell, {
-  execCommand: () => execCommand,
-  execHook: () => execHook,
-  extractContext: () => extractContext,
-  parseHookOutput: () => parseHookOutput,
-  resolveValorBrainBin: () => resolveValorBrainBin,
-  spawnBackground: () => spawnBackground
-});
 import { execFile, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -39,7 +26,7 @@ function resolveValorBrainBin(configured) {
 }
 function execHook(cfg, hookName, input, timeout) {
   const hookTimeout = timeout ?? (hookName === "decision-extractor" || hookName === "episode-extractor" || hookName === "handoff-generator" ? EXTRACTION_TIMEOUT : DEFAULT_TIMEOUT);
-  return new Promise((resolve2) => {
+  return new Promise((resolve) => {
     const child = execFile(cfg.valorbrainBin, ["hook", hookName], {
       timeout: hookTimeout,
       env: { ...process.env, ...cfg.env },
@@ -47,7 +34,7 @@ function execHook(cfg, hookName, input, timeout) {
     }, (error, stdout, stderr) => {
       if (error) {
         const msg = error.killed ? `timeout after ${hookTimeout}ms` : String(error.message || error);
-        resolve2({
+        resolve({
           stdout: "",
           stderr: `[valorbrain-plugin] hook ${hookName} failed: ${msg}
 ${stderr}`,
@@ -55,32 +42,12 @@ ${stderr}`,
         });
         return;
       }
-      resolve2({ stdout: stdout || "", stderr: stderr || "", exitCode: 0 });
+      resolve({ stdout: stdout || "", stderr: stderr || "", exitCode: 0 });
     });
     if (child.stdin) {
       child.stdin.write(JSON.stringify(input));
       child.stdin.end();
     }
-  });
-}
-function execCommand(cfg, args, timeout = DEFAULT_TIMEOUT) {
-  return new Promise((resolve2) => {
-    execFile(cfg.valorbrainBin, args, {
-      timeout,
-      env: { ...process.env, ...cfg.env },
-      maxBuffer: 1024 * 1024
-    }, (error, stdout, stderr) => {
-      if (error) {
-        resolve2({
-          stdout: "",
-          stderr: `[valorbrain-plugin] command failed: ${String(error.message || error)}
-${stderr}`,
-          exitCode: error.code ?? 1
-        });
-        return;
-      }
-      resolve2({ stdout: stdout || "", stderr: stderr || "", exitCode: 0 });
-    });
   });
 }
 function spawnBackground(cfg, args, logger) {
@@ -413,6 +380,28 @@ init_shell();
 // src/openclaw/session-state.ts
 var bootstrapContexts = new Map;
 var surfacedSessions = new Set;
+var bootstrapReadiness = new Map;
+function beginBootstrap(sessionId) {
+  let resolve;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  const state = { promise, resolve };
+  bootstrapReadiness.set(sessionId, state);
+  let finished = false;
+  return () => {
+    if (finished)
+      return;
+    finished = true;
+    if (bootstrapReadiness.get(sessionId) === state) {
+      bootstrapReadiness.delete(sessionId);
+    }
+    resolve();
+  };
+}
+async function waitForBootstrap(sessionId) {
+  await bootstrapReadiness.get(sessionId)?.promise;
+}
 function setBootstrapContext(sessionId, ctx) {
   bootstrapContexts.set(sessionId, ctx);
 }
@@ -431,6 +420,11 @@ function isSessionSurfaced(sessionId) {
 function clearSessionState(sessionId) {
   bootstrapContexts.delete(sessionId);
   surfacedSessions.delete(sessionId);
+  const pending = bootstrapReadiness.get(sessionId);
+  if (pending) {
+    bootstrapReadiness.delete(sessionId);
+    pending.resolve();
+  }
 }
 
 // src/openclaw/compaction-threshold.ts
@@ -688,6 +682,7 @@ function cleanPromptForSearch(prompt) {
   cleaned = cleaned.replace(/<vault-context>[\s\S]*?<\/vault-context>/g, "");
   cleaned = cleaned.replace(/<vault-routing>[\s\S]*?<\/vault-routing>/g, "");
   cleaned = cleaned.replace(/<vault-session>[\s\S]*?<\/vault-session>/g, "");
+  cleaned = cleaned.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "");
   cleaned = cleaned.replace(/Sender\s*\(untrusted metadata\)\s*:\s*```json\n[\s\S]*?```/g, "");
   cleaned = cleaned.replace(/Sender\s*\(untrusted metadata\)\s*:\s*\{[\s\S]*?\}\s*/g, "");
   cleaned = cleaned.replace(/OpenClaw runtime context \(internal\):[\s\S]*?(?=\n\n|\n?$)/g, "");
@@ -696,15 +691,35 @@ function cleanPromptForSearch(prompt) {
   cleaned = cleaned.replace(/\n{3,}/g, `
 
 `).trim();
-  return cleaned || prompt;
+  return cleaned;
+}
+async function precompactCheckpoint(cfg, thresholdCfg, logger, event, ctx) {
+  let sessionFile;
+  try {
+    sessionFile = activeResolveSessionFile({
+      sessionId: ctx.sessionId || "unknown",
+      agentId: ctx.agentId,
+      sessionKey: ctx.sessionKey
+    });
+    await maybeRunPrecompactExtract(cfg, thresholdCfg, logger, {
+      sessionId: ctx.sessionId || "unknown",
+      sessionFile,
+      messages: event.messages
+    });
+  } catch (error) {
+    logger.error(`valorbrain: precompact-extract threw: ${String(error?.message ?? error)}`);
+  }
 }
 async function handleBeforePromptBuild(cfg, thresholdCfg, logger, event, ctx) {
-  if (!event.prompt || event.prompt.length < 5)
+  if (!event.prompt || event.prompt.length < 5) {
+    await precompactCheckpoint(cfg, thresholdCfg, logger, event, ctx);
     return;
+  }
   const sessionId = ctx.sessionId || "unknown";
   const isFirstTurn = !isSessionSurfaced(sessionId);
   let context = "";
   if (isFirstTurn) {
+    await waitForBootstrap(sessionId);
     markSessionSurfaced(sessionId);
     const bootstrapContext = takeBootstrapContext(sessionId);
     if (bootstrapContext) {
@@ -719,43 +734,43 @@ async function handleBeforePromptBuild(cfg, thresholdCfg, logger, event, ctx) {
 `;
   }
   const searchPrompt = cleanPromptForSearch(event.prompt);
-  if (process.env.VALORBRAIN_MEMORY_PREPARE_HOOK === "1") {
-    const prepareResult = await activeHookRunner.execHook(cfg, "memory-prepare", {
+  if (!searchPrompt) {
+    await precompactCheckpoint(cfg, thresholdCfg, logger, event, ctx);
+    return context.trim() ? { prependContext: context.trim() } : undefined;
+  }
+  try {
+    if (process.env.VALORBRAIN_MEMORY_PREPARE_HOOK === "1") {
+      const prepareResult = await activeHookRunner.execHook(cfg, "memory-prepare", {
+        session_id: sessionId,
+        prompt: searchPrompt
+      });
+      if (prepareResult.exitCode === 0) {
+        const parsed = activeHookRunner.parseHookOutput(prepareResult.stdout);
+        const prepared = activeHookRunner.extractContext(parsed);
+        if (prepared)
+          context += prepared + `
+
+`;
+      }
+    }
+    const surfacingResult = await activeHookRunner.execHook(cfg, "context-surfacing", {
       session_id: sessionId,
       prompt: searchPrompt
     });
-    if (prepareResult.exitCode === 0) {
-      const parsed = activeHookRunner.parseHookOutput(prepareResult.stdout);
-      const prepared = activeHookRunner.extractContext(parsed);
-      if (prepared)
-        context += prepared + `
-
-`;
+    if (surfacingResult.exitCode === 0) {
+      const parsed = activeHookRunner.parseHookOutput(surfacingResult.stdout);
+      const surfacedContext = activeHookRunner.extractContext(parsed);
+      if (surfacedContext) {
+        context += surfacedContext;
+      }
+    } else {
+      logger.warn(`valorbrain: context-surfacing failed: ${surfacingResult.stderr}`);
     }
+  } catch (error) {
+    logger.warn(`valorbrain: retrieval hook failed: ${String(error?.message ?? error)}`);
+  } finally {
+    await precompactCheckpoint(cfg, thresholdCfg, logger, event, ctx);
   }
-  const surfacingResult = await activeHookRunner.execHook(cfg, "context-surfacing", {
-    session_id: sessionId,
-    prompt: searchPrompt
-  });
-  if (surfacingResult.exitCode === 0) {
-    const parsed = activeHookRunner.parseHookOutput(surfacingResult.stdout);
-    const surfacedContext = activeHookRunner.extractContext(parsed);
-    if (surfacedContext) {
-      context += surfacedContext;
-    }
-  } else {
-    logger.warn(`valorbrain: context-surfacing failed: ${surfacingResult.stderr}`);
-  }
-  const sessionFile = activeResolveSessionFile({
-    sessionId,
-    agentId: ctx.agentId,
-    sessionKey: ctx.sessionKey
-  });
-  await maybeRunPrecompactExtract(cfg, thresholdCfg, logger, {
-    sessionId,
-    sessionFile,
-    messages: event.messages
-  });
   if (!context.trim())
     return;
   return { prependContext: context.trim() };
@@ -834,17 +849,24 @@ async function handleBeforeCompaction(cfg, thresholdCfg, logger, event, ctx) {
   });
 }
 async function handleSessionStart(cfg, logger, event, _ctx) {
-  const result = await activeHookRunner.execHook(cfg, "session-bootstrap", {
-    session_id: event.sessionId
-  });
-  if (result.exitCode === 0) {
-    const parsed = activeHookRunner.parseHookOutput(result.stdout);
-    const bootstrapCtx = activeHookRunner.extractContext(parsed);
-    if (bootstrapCtx) {
-      setBootstrapContext(event.sessionId, bootstrapCtx);
+  const finishBootstrap = beginBootstrap(event.sessionId);
+  try {
+    const result = await activeHookRunner.execHook(cfg, "session-bootstrap", {
+      session_id: event.sessionId
+    });
+    if (result.exitCode === 0) {
+      const parsed = activeHookRunner.parseHookOutput(result.stdout);
+      const bootstrapCtx = activeHookRunner.extractContext(parsed);
+      if (bootstrapCtx) {
+        setBootstrapContext(event.sessionId, bootstrapCtx);
+      }
+    } else {
+      logger.warn(`valorbrain: session-bootstrap failed: ${result.stderr}`);
     }
-  } else {
-    logger.warn(`valorbrain: session-bootstrap failed: ${result.stderr}`);
+  } catch (error) {
+    logger.warn(`valorbrain: session-bootstrap threw: ${String(error?.message ?? error)}`);
+  } finally {
+    finishBootstrap();
   }
   logger.info(`valorbrain: session started ${event.sessionId}`);
 }
@@ -869,12 +891,24 @@ async function handleBeforeReset(cfg, logger, event, ctx) {
     session_id: ctx.sessionId,
     transcript_path: sessionFile
   };
-  await Promise.allSettled([
+  const [decision, episode, handoff, feedback] = await Promise.allSettled([
     activeHookRunner.execHook(cfg, "decision-extractor", hookInput),
     activeHookRunner.execHook(cfg, "episode-extractor", hookInput),
     activeHookRunner.execHook(cfg, "handoff-generator", hookInput),
     activeHookRunner.execHook(cfg, "feedback-loop", hookInput)
   ]);
+  for (const [name, result] of [
+    ["decision-extractor", decision],
+    ["episode-extractor", episode],
+    ["handoff-generator", handoff],
+    ["feedback-loop", feedback]
+  ]) {
+    if (result.status === "rejected") {
+      logger.warn(`valorbrain: before_reset ${name} REJECTED — extraction may be lost, state clears next: ` + `session=${ctx.sessionId}${ctx.agentId ? ` agent=${ctx.agentId}` : ""} ` + `reason=${String(result.reason)}`);
+    } else if (result.value.exitCode !== 0) {
+      logger.warn(`valorbrain: before_reset ${name} failed: ${result.value.stderr}`);
+    }
+  }
   clearSessionState(ctx.sessionId);
   logger.info(`valorbrain: before_reset cleanup for ${ctx.sessionId}`);
 }
@@ -966,8 +1000,8 @@ var valorbrainPlugin = {
     api.registerService({
       id: "valorbrain-api",
       async start(svcCtx) {
-        const { spawnBackground: spawnBackground2 } = await Promise.resolve().then(() => (init_shell(), exports_shell));
-        serveChild = spawnBackground2(cfg, ["serve", "--port", String(cfg.servePort)], svcCtx.logger);
+        await Promise.resolve().then(() => init_shell());
+        serveChild = spawnBackground(cfg, ["serve", "--port", String(cfg.servePort)], svcCtx.logger);
         svcCtx.logger.info(`valorbrain: REST API spawned (pid=${serveChild.pid})`);
       },
       stop() {
