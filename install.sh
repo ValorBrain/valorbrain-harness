@@ -67,7 +67,7 @@ EOF
 install_hermes() {
   echo "[hermes] vendored plugin → ~/.hermes/plugins/valorbrain"
   if [[ ! -f "$ROOT/hermes/plugin.yaml" ]]; then
-    echo "[hermes] hermes/ missing from this repo — run scripts/vendor-from-engine.sh on a machine with the engine" >&2
+    echo "[hermes] hermes/ missing from this repo — run hermes/sync.sh (it copies the plugin from ValorBrain/valorbrain-cli)" >&2
     return 1
   fi
   mkdir -p "$HOME/.hermes/plugins/valorbrain"
@@ -81,7 +81,8 @@ install_openclaw() {
   command -v openclaw >/dev/null || { echo "[openclaw] openclaw CLI not found" >&2; return 1; }
   # OpenClaw 2026.4.x can miss a freshly installed plugin through its manifest cache.
   OPENCLAW_DISABLE_PLUGIN_DISCOVERY_CACHE=1 OPENCLAW_DISABLE_PLUGIN_MANIFEST_CACHE=1 \
-    openclaw plugins install "$ROOT/openclaw" --force
+    openclaw plugins install "$ROOT/openclaw" --force \
+    || { echo "[openclaw] install failed" >&2; return 1; }
   echo "[openclaw] installed — set VALORBRAIN_API_TOKEN for the gateway and restart it"
 }
 
@@ -103,7 +104,11 @@ case "$TARGET" in
   hermes) install_hermes ;;
   openclaw) install_openclaw ;;
   openclaw-self-hosted) install_openclaw_self_hosted ;;
-  all) install_zcode; install_grok; install_hermes
-       echo "[all] OpenClaw is not part of 'all': run ./install.sh openclaw explicitly" ;;
+  all) status=0
+       install_zcode || status=1
+       install_grok || status=1
+       install_hermes || status=1
+       echo "[all] OpenClaw is not part of 'all': run ./install.sh openclaw explicitly"
+       exit "$status" ;;
   *) echo "Usage: $0 <zcode|grok|hermes|openclaw|openclaw-self-hosted|all>"; exit 1 ;;
 esac
