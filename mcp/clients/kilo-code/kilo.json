@@ -1,0 +1,15 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "mcp": {
+    "valorbrain": {
+      "type": "remote",
+      "url": "https://mcpbrain.valor.digital/mcp",
+      "enabled": true,
+      "oauth": false,
+      "headers": {
+        "Authorization": "Bearer {env:VALORBRAIN_MCP_TOKEN}",
+        "X-Source-Agent": "kilo-code"
+      }
+    }
+  }
+}

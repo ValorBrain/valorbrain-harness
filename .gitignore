@@ -1,0 +1,12 @@
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
+*.tsbuildinfo
+*.tgz
+*.difypkg
+.env
+*.env
+.DS_Store

@@ -1,0 +1,4 @@
+[mcp_servers.valorbrain]
+url = "https://mcpbrain.valor.digital/mcp"
+scopes = ["read", "write"]
+http_headers = { "X-Source-Agent" = "codex" }

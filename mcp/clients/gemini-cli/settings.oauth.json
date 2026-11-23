@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "valorbrain": {
+      "type": "http",
+      "url": "https://mcpbrain.valor.digital/mcp",
+      "headers": {
+        "X-Source-Agent": "gemini-cli"
+      },
+      "oauth": {
+        "enabled": true,
+        "scopes": [
+          "read",
+          "write"
+        ]
+      }
+    }
+  }
+}

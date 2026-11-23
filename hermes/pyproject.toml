@@ -1,0 +1,40 @@
+# pip distribution of the vendored Hermes plugin. Hermes (>= 0.20) discovers
+# memory providers from the `hermes_agent.memory_providers` entry-point group
+# (plugins/memory/__init__.py in hermes-agent); the entry name is what goes in
+# `memory.provider`. The package is this directory: __init__.py + plugin.yaml.
+[build-system]
+requires = ["setuptools>=77,<81"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "valorbrain-hermes"
+dynamic = ["version"]
+description = "ValorBrain memory for Hermes Agent: recall before each turn, lifecycle hooks and memory tools against a hosted or self-hosted ValorBrain engine."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = []
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://valorbrain.com.br"
+Source = "https://github.com/ValorBrain/valorbrain-harness/tree/main/hermes"
+Canonical = "https://github.com/ValorBrain/valorbrain-cli/tree/main/packages/hermes-plugin"
+
+[project.entry-points."hermes_agent.memory_providers"]
+valorbrain = "valorbrain_hermes"
+
+[tool.setuptools]
+packages = ["valorbrain_hermes"]
+package-dir = { valorbrain_hermes = "." }
+include-package-data = false
+
+[tool.setuptools.package-data]
+valorbrain_hermes = ["plugin.yaml"]
+
+[tool.setuptools.dynamic]
+# Read statically from the plugin (no import: it needs Hermes' SDK).
+version = { attr = "valorbrain_hermes._PLUGIN_VERSION" }

@@ -1,0 +1,118 @@
+name: integrations
+
+# Offline tests of every integration. Live tests need an engine URL and a token
+# and run by hand (see each integration's README).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  openclaw:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: openclaw
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: openclaw/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - name: Committed dist/ matches the source
+        run: git diff --exit-code -- dist
+      - run: npm test
+
+  n8n:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: n8n
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: n8n/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+
+  claude-code-and-codex:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node --test claude-code/test/*.test.mjs codex/test/*.test.mjs
+
+  mcp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun test mcp/test/recipes.test.ts
+
+  hermes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m unittest discover -s hermes/tests -v
+
+  open-webui:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: open-webui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install "pydantic>=2,<3"
+      - run: python -m unittest discover -s tests -v
+
+  dify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dify
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt "pytest>=8,<10" pyyaml
+      - run: python -m pytest -p no:cacheprovider -v
+
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - python: "3.10"
+            extras: ""
+          - python: "3.12"
+            extras: "[langchain,langgraph,crewai]"
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e ".${{ matrix.extras }}" "pytest>=8,<10"
+      - run: python -m pytest -p no:cacheprovider -m "not live" -v

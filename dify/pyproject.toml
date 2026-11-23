@@ -1,0 +1,16 @@
+[project]
+name = "valorbrain-dify"
+version = "0.1.0"
+description = "ValorBrain tool plugin for Dify: Store memory, Prepare context, Search memory and Forget memory."
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "dify_plugin==0.9.1",
+    "httpx==0.28.1",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

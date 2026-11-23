@@ -1,0 +1,11 @@
+mcpServers:
+  valorbrain:
+    type: streamable-http
+    url: https://mcpbrain.valor.digital/mcp
+    title: ValorBrain
+    description: Shared company memory for agents (retrieve, store, hand off).
+    requiresOAuth: true
+    oauth:
+      scope: read write
+    headers:
+      X-Source-Agent: librechat

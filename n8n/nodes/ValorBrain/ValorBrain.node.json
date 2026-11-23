@@ -1,0 +1,18 @@
+{
+	"node": "n8n-nodes-valorbrain.valorBrain",
+	"nodeVersion": "1.0",
+	"codexVersion": "1.0",
+	"categories": ["Data & Storage", "Development"],
+	"resources": {
+		"credentialDocumentation": [
+			{
+				"url": "https://github.com/ValorBrain/valorbrain-harness/tree/main/n8n#credential"
+			}
+		],
+		"primaryDocumentation": [
+			{
+				"url": "https://github.com/ValorBrain/valorbrain-harness/tree/main/n8n#readme"
+			}
+		]
+	}
+}

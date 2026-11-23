@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "valorbrain"
+dynamic = ["version"]
+description = "ValorBrain memory for Python agents: a small REST client plus LangChain, LangGraph and CrewAI adapters."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Valor Digital", email = "comercial@valor.digital" }]
+keywords = ["valorbrain", "memory", "agents", "llm", "langchain", "langgraph", "crewai", "rag"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[project.optional-dependencies]
+langchain = ["langchain-core>=1.0"]
+langgraph = ["langgraph>=1.0"]
+crewai = ["crewai>=1.14.6"]
+test = ["pytest>=8"]
+
+[project.urls]
+Homepage = "https://valorbrain.com.br"
+Documentation = "https://docs.valorbrain.com.br"
+Repository = "https://github.com/ValorBrain/valorbrain-harness"
+Issues = "https://github.com/ValorBrain/valorbrain-harness/issues"
+
+[tool.hatch.version]
+path = "src/valorbrain/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/valorbrain"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "README.md", "LICENSE", "pyproject.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["live: hits the ValorBrain staging engine; needs VB_STAGING_URL and VB_STAGING_MCP_TOKEN"]

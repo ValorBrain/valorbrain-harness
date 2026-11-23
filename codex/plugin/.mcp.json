@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "valorbrain": {
+      "url": "https://mcpbrain.valor.digital/mcp",
+      "http_headers_helper": "node -e 'const f=require(\"fs\"),p=require(\"path\"),o=require(\"os\");let t=String(process.env.VALORBRAIN_MCP_TOKEN||\"\").trim();if(!t.startsWith(\"vbm_\")){try{t=String(JSON.parse(f.readFileSync(p.join(o.homedir(),\".valorbrain\",\"connect.json\"),\"utf8\")).harnesses.codex.token||\"\").trim()}catch(e){t=\"\"}}const h={\"X-ValorBrain-Harness\":\"codex\",\"User-Agent\":\"valorbrain-codex-plugin/0.1.0\"};if(t.startsWith(\"vbm_\"))h.Authorization=\"Bearer \"+t;process.stdout.write(JSON.stringify(h))'"
+    }
+  }
+}

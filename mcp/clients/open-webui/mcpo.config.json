@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "valorbrain": {
+      "type": "streamable-http",
+      "url": "https://mcpbrain.valor.digital/mcp",
+      "headers": {
+        "Authorization": "Bearer <vbm_token>",
+        "X-Source-Agent": "open-webui"
+      }
+    }
+  }
+}

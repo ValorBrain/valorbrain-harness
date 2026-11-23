@@ -1,0 +1,11 @@
+name: ValorBrain
+version: 0.0.1
+schema: v1
+mcpServers:
+  - name: valorbrain
+    type: streamable-http
+    url: https://mcpbrain.valor.digital/mcp
+    requestOptions:
+      headers:
+        Authorization: "Bearer ${{ secrets.VALORBRAIN_MCP_TOKEN }}"
+        X-Source-Agent: continue

@@ -27,8 +27,8 @@ library that OpenClaw imports.
 ### Provenance
 
 Every request from this client carries `X-Source-Agent: ${cfg.sourceAgent ?? 'openclaw-plugin'}`.
-Set `cfg.sourceAgent` to the actual agent name (e.g. `'moltgus'`,
-`'helena-bot'`) so audit trails are accurate. See
+Set `cfg.sourceAgent` to the actual agent name (e.g. `'sales-bot'`,
+`'support-bot'`) so audit trails are accurate. See
 `docs/AGENT_PROVENANCE.md`.
 
 ### Pitfalls

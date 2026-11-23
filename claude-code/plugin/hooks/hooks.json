@@ -1,0 +1,39 @@
+{
+  "description": "ValorBrain: runs the official hook client (@valorbrain/connect) unless its hooks are already installed.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/valorbrain-plugin.mjs\" hook session-start --harness=claude-code",
+            "timeout": 10,
+            "statusMessage": "Recalling from ValorBrain"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/valorbrain-plugin.mjs\" hook prompt --harness=claude-code",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/valorbrain-plugin.mjs\" hook stop --harness=claude-code",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

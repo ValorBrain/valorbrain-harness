@@ -1,0 +1,39 @@
+{
+  "name": "valorbrain",
+  "version": "0.1.0",
+  "description": "Durable memory for Codex: context at session start and with every prompt, a memory checkpoint every few turns, and the ValorBrain MCP tools.",
+  "author": {
+    "name": "Valor Digital",
+    "url": "https://valor.digital"
+  },
+  "homepage": "https://github.com/ValorBrain/valorbrain-harness/tree/main/codex",
+  "repository": "https://github.com/ValorBrain/valorbrain-harness",
+  "license": "MIT",
+  "keywords": [
+    "memory",
+    "mcp",
+    "context",
+    "valorbrain"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "ValorBrain",
+    "shortDescription": "Durable memory for your Codex sessions",
+    "longDescription": "Every Codex session starts with what ValorBrain knows about the work, each prompt brings the relevant memory along, and every few turns Codex is asked to record what is worth keeping. The hooks run the official ValorBrain client (@valorbrain/connect); the ValorBrain MCP server gives Codex the memory tools.",
+    "developerName": "Valor Digital",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://valorbrain.valor.digital",
+    "privacyPolicyURL": "https://valorbrain.valor.digital/privacy",
+    "termsOfServiceURL": "https://valorbrain.valor.digital/terms",
+    "defaultPrompt": [
+      "Use $valorbrain:status to show whether ValorBrain is connected",
+      "Use $valorbrain:setup to sign this machine in to ValorBrain"
+    ]
+  }
+}

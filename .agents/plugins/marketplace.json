@@ -1,0 +1,20 @@
+{
+  "name": "valorbrain",
+  "interface": {
+    "displayName": "ValorBrain"
+  },
+  "plugins": [
+    {
+      "name": "valorbrain",
+      "source": {
+        "source": "local",
+        "path": "./codex/plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

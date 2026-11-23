@@ -1,9 +1,58 @@
 {
-  "name": "valorbrain-openclaw-plugin",
-  "version": "0.10.2",
-  "description": "OpenClaw plugin adapter for ValorBrain — on-device hybrid memory layer",
+  "name": "@valorbrain/openclaw",
+  "version": "0.1.0",
+  "description": "ValorBrain team memory for OpenClaw: a kind:\"memory\" plugin that talks to the hosted ValorBrain API over HTTPS (no local binary).",
+  "license": "MIT",
   "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "memory",
+    "valorbrain"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ValorBrain/valorbrain-harness.git",
+    "directory": "openclaw"
+  },
+  "homepage": "https://github.com/ValorBrain/valorbrain-harness/tree/main/openclaw#readme",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test \"test/*.test.mjs\"",
+    "test:live": "node --test test/live.test.mjs",
+    "prepublishOnly": "npm run build && npm test"
+  },
   "openclaw": {
-    "extensions": ["./index.ts"]
+    "plugin": "./openclaw.plugin.json",
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.4.24"
+    },
+    "install": {
+      "npmSpec": "@valorbrain/openclaw",
+      "minHostVersion": ">=2026.4.24"
+    }
+  },
+  "devDependencies": {
+    "@types/node": "22.19.1",
+    "typescript": "5.9.3"
   }
 }

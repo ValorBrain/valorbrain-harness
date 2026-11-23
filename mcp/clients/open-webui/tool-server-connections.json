@@ -1,0 +1,20 @@
+[
+  {
+    "type": "mcp",
+    "url": "https://mcpbrain.valor.digital/mcp",
+    "path": "",
+    "auth_type": "bearer",
+    "key": "<vbm_token>",
+    "headers": {
+      "X-Source-Agent": "open-webui"
+    },
+    "config": {
+      "enable": true
+    },
+    "info": {
+      "id": "valorbrain",
+      "name": "ValorBrain",
+      "description": "Shared company memory for agents"
+    }
+  }
+]

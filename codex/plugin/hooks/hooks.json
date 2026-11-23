@@ -1,0 +1,38 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/bin/valorbrain-plugin.mjs\" hook session-start --harness=codex",
+            "timeout": 10,
+            "statusMessage": "Recalling from ValorBrain"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/bin/valorbrain-plugin.mjs\" hook prompt --harness=codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/bin/valorbrain-plugin.mjs\" hook stop --harness=codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

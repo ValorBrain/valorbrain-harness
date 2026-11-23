@@ -1,0 +1,94 @@
+{
+	"name": "ValorBrain: write a dated document, search it, forget it",
+	"nodes": [
+		{
+			"parameters": {},
+			"id": "8b2f1d5e-6c3a-4d9f-8e21-3a4b5c6d7e01",
+			"name": "Manual Trigger",
+			"type": "n8n-nodes-base.manualTrigger",
+			"typeVersion": 1,
+			"position": [0, 0]
+		},
+		{
+			"parameters": {
+				"resource": "memory",
+				"operation": "writeDocument",
+				"collection": "n8n-smoke",
+				"path": "=n8n-smoke/{{ $now.toMillis() }}.md",
+				"content": "=On 28 July 2026 the n8n smoke workflow recorded a dated fact at {{ $now.toISO() }}.",
+				"eventAt": "2026-07-28T16:00:00Z",
+				"additionalFields": {
+					"title": "=n8n smoke {{ $now.toMillis() }}"
+				}
+			},
+			"id": "8b2f1d5e-6c3a-4d9f-8e21-3a4b5c6d7e02",
+			"name": "Write document",
+			"type": "n8n-nodes-valorbrain.valorBrain",
+			"typeVersion": 1,
+			"position": [220, 0],
+			"credentials": {
+				"valorBrainApi": { "id": "vbSmokeCredential", "name": "ValorBrain" }
+			}
+		},
+		{
+			"parameters": {
+				"amount": 6
+			},
+			"id": "8b2f1d5e-6c3a-4d9f-8e21-3a4b5c6d7e03",
+			"name": "Wait for indexing",
+			"type": "n8n-nodes-base.wait",
+			"typeVersion": 1.1,
+			"position": [440, 0],
+			"webhookId": "8b2f1d5e-6c3a-4d9f-8e21-3a4b5c6d7e03"
+		},
+		{
+			"parameters": {
+				"resource": "memory",
+				"operation": "search",
+				"query": "={{ $('Write document').item.json.title }}",
+				"options": {
+					"limit": 5
+				}
+			},
+			"id": "8b2f1d5e-6c3a-4d9f-8e21-3a4b5c6d7e04",
+			"name": "Search",
+			"type": "n8n-nodes-valorbrain.valorBrain",
+			"typeVersion": 1,
+			"position": [660, 0],
+			"credentials": {
+				"valorBrainApi": { "id": "vbSmokeCredential", "name": "ValorBrain" }
+			}
+		},
+		{
+			"parameters": {
+				"resource": "memory",
+				"operation": "forget",
+				"documentId": "={{ $('Write document').item.json.docid }}"
+			},
+			"id": "8b2f1d5e-6c3a-4d9f-8e21-3a4b5c6d7e05",
+			"name": "Forget",
+			"type": "n8n-nodes-valorbrain.valorBrain",
+			"typeVersion": 1,
+			"position": [880, 0],
+			"credentials": {
+				"valorBrainApi": { "id": "vbSmokeCredential", "name": "ValorBrain" }
+			}
+		}
+	],
+	"connections": {
+		"Manual Trigger": {
+			"main": [[{ "node": "Write document", "type": "main", "index": 0 }]]
+		},
+		"Write document": {
+			"main": [[{ "node": "Wait for indexing", "type": "main", "index": 0 }]]
+		},
+		"Wait for indexing": {
+			"main": [[{ "node": "Search", "type": "main", "index": 0 }]]
+		},
+		"Search": {
+			"main": [[{ "node": "Forget", "type": "main", "index": 0 }]]
+		}
+	},
+	"settings": { "executionOrder": "v1" },
+	"pinData": {}
+}

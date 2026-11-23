@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "valorbrain": {
+      "type": "http",
+      "url": "${VALORBRAIN_MCP_URL:-https://mcpbrain.valor.digital/mcp}",
+      "headersHelper": "node \"${CLAUDE_PLUGIN_ROOT}/bin/valorbrain-plugin.mjs\" mcp-headers --harness=claude-code"
+    }
+  }
+}

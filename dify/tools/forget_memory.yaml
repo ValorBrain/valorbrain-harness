@@ -1,0 +1,62 @@
+identity:
+  name: forget_memory
+  author: valorbrain
+  label:
+    en_US: Forget memory
+    pt_BR: Esquecer memória
+description:
+  human:
+    en_US: Permanently remove one ValorBrain document by its ID. With a Collection or Dify end-user scope, the plugin first checks that the document belongs to that collection.
+    pt_BR: Remove de vez um documento do ValorBrain pelo ID. Com escopo de Coleção ou de usuário final do Dify, o plugin antes confere se o documento pertence àquela coleção.
+  llm: Permanently remove one memory document from ValorBrain, for example a fact that is wrong or that the user asked to forget. Pass the document ID that Search memory or Store memory returned.
+parameters:
+  - name: docid
+    type: string
+    required: true
+    form: llm
+    label:
+      en_US: Document ID
+      pt_BR: ID do documento
+    human_description:
+      en_US: The document ID, for example #3b60cf (from Search memory) or 319816 (from Store memory).
+      pt_BR: O ID do documento, por exemplo #3b60cf (da Busca) ou 319816 (da Gravação).
+    llm_description: The ID of the document to forget, as Search memory or Store memory returned it, for example #3b60cf.
+  - name: scope
+    type: select
+    required: false
+    form: form
+    default: token
+    label:
+      en_US: Scope
+      pt_BR: Escopo
+    human_description:
+      en_US: Which documents this tool may forget. "Token default" allows any document the token can forget. "Collection field" allows only documents in Collection. "Dify end user" allows only documents in the collection of the person who runs the app.
+      pt_BR: Quais documentos esta ferramenta pode esquecer. "Padrão do token" permite qualquer documento que o token possa esquecer. "Campo Coleção" permite só documentos da Coleção. "Usuário final do Dify" permite só documentos da coleção de quem roda o app.
+    options:
+      - value: token
+        label:
+          en_US: Token default
+          pt_BR: Padrão do token
+      - value: collection
+        label:
+          en_US: Collection field
+          pt_BR: Campo Coleção
+      - value: dify_user
+        label:
+          en_US: Dify end user
+          pt_BR: Usuário final do Dify
+  - name: collection
+    type: string
+    required: false
+    form: form
+    label:
+      en_US: Collection
+      pt_BR: Coleção
+    human_description:
+      en_US: The collection name when Scope is "Collection field". When Scope is "Dify end user", the prefix of the per-user collection (empty means dify-user).
+      pt_BR: O nome da coleção quando o Escopo é "Campo Coleção". Quando o Escopo é "Usuário final do Dify", o prefixo da coleção por usuário (vazio significa dify-user).
+    placeholder:
+      en_US: support-team
+extra:
+  python:
+    source: tools/forget_memory.py
