@@ -36,6 +36,15 @@ test("cleanUserText drops channel metadata, injected memory, timestamps and Syst
   assert.equal(cleanUserText(bootstrap), "real question");
 });
 
+test("cleanUserText drops harness system-reminder blocks and OpenClaw's runtime context", () => {
+  // Pasted back into a turn, these must never become a recall query (the engine's rule, VB-4416).
+  const reminder = "<system-reminder>\nThis is an automated reminder about the session.\n</system-reminder>";
+  assert.equal(cleanUserText(`${reminder}\nwhat did we decide about retries?`), "what did we decide about retries?");
+  assert.equal(cleanUserText(reminder), "");
+  const runtime = "OpenClaw runtime context (internal):\nchannel=telegram chat=-100123 session=abc\n\nreal question";
+  assert.equal(cleanUserText(runtime), "real question");
+});
+
 test("wrapMemory marks the block the plugin injects", () => {
   const w = wrapMemory("  ctx  ");
   assert.match(w, /^<valorbrain-memory>\n/);

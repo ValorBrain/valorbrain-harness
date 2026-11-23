@@ -12,6 +12,10 @@ export function wrapMemory(context) {
     return `${MEMORY_OPEN}\n${MEMORY_HEADER}\n\n${context.trim()}\n${MEMORY_CLOSE}`;
 }
 const INJECTED_BLOCK = /<valorbrain-memory>[\s\S]*?<\/valorbrain-memory>\s*/g;
+/** A harness reminder block pasted back into a turn: never a recall query (the engine's rule, VB-4416). */
+const SYSTEM_REMINDER_BLOCK = /<system-reminder>[\s\S]*?<\/system-reminder>\s*/g;
+/** OpenClaw's runtime-context paragraph, up to the next blank line. */
+const RUNTIME_CONTEXT_BLOCK = /OpenClaw runtime context \(internal\):[\s\S]*?(?=\n\n|\n?$)/g;
 /** Lines OpenClaw adds in front of a channel message (Telegram, Discord, …). */
 const METADATA_SENTINELS = {
     "Conversation info (untrusted metadata):": true,
@@ -26,14 +30,20 @@ const LEADING_TIMESTAMP = /^\[[A-Za-z]{3} \d{4}-\d{2}-\d{2} \d{2}:\d{2}[^\]]*\]\
 /** `[Bootstrap pending]` and friends: OpenClaw's per-run prefix, persisted with the user turn. */
 const RUNTIME_PREFIX_HEADER = /^\[Bootstrap [^\]]*\]$/;
 /**
- * The person's words of one user turn: without our injected block, OpenClaw's
- * `(untrusted metadata)` JSON fences, the trailing untrusted-context section,
+ * The person's words of one user turn: without our injected block, harness
+ * `<system-reminder>` blocks, OpenClaw's `(untrusted metadata)` JSON fences, its
+ * runtime-context paragraph, the trailing untrusted-context section,
  * `[Bootstrap …]` instruction blocks, the timestamp prefix and `System:` event
  * lines. Used for the recall query and for every user message of an uploaded
  * transcript.
  */
 export function cleanUserText(text) {
-    const lines = text.replace(INJECTED_BLOCK, "").replace(LEADING_TIMESTAMP, "").split("\n");
+    const lines = text
+        .replace(INJECTED_BLOCK, "")
+        .replace(SYSTEM_REMINDER_BLOCK, "")
+        .replace(RUNTIME_CONTEXT_BLOCK, "")
+        .replace(LEADING_TIMESTAMP, "")
+        .split("\n");
     const out = [];
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];

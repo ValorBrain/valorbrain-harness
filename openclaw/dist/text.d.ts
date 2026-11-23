@@ -9,8 +9,9 @@ export declare const MEMORY_CLOSE = "</valorbrain-memory>";
 /** The block prepended to the user turn. OpenClaw persists it in the session, so captures strip it. */
 export declare function wrapMemory(context: string): string;
 /**
- * The person's words of one user turn: without our injected block, OpenClaw's
- * `(untrusted metadata)` JSON fences, the trailing untrusted-context section,
+ * The person's words of one user turn: without our injected block, harness
+ * `<system-reminder>` blocks, OpenClaw's `(untrusted metadata)` JSON fences, its
+ * runtime-context paragraph, the trailing untrusted-context section,
  * `[Bootstrap …]` instruction blocks, the timestamp prefix and `System:` event
  * lines. Used for the recall query and for every user message of an uploaded
  * transcript.
