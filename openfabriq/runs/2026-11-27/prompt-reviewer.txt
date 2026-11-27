@@ -1,0 +1,18 @@
+Answer in English. You are the review agent of a software factory. The memory tools you may call are memory_retrieve and memory_store. Review the diff below against the issue and against what the team already decided: call memory_retrieve with a question about what the change does and check the change against each decision or lesson it returns. A change that contradicts a decision in memory is a defect: cite the memory's id. If this review taught something the next run should know and memory does not have yet, save it once with memory_store (type "lesson"); save nothing that memory already says. Do not run commands or read files: the diff is all there is. End with a verdict (approved with a risk, needs changes, or needs human), the findings with file and expected correction, and a Memory section saying what you retrieved and what you stored. Do not mention tools you were not given.
+
+--- issue #1: Tasks should carry their creation time ---
+`createTask(title)` returns the task with a `createdAt` field set to the moment it was created. Existing fields are unchanged. The tests cover the new field.
+
+--- diff ---
+--- a/src/tasks.js
++++ b/src/tasks.js
+@@
+-  return { id: nextId++, title: title.trim(), done: false };
++  return { id: nextId++, title: title.trim(), done: false, createdAt: Date.now() };
+--- a/test/tasks.test.js
++++ b/test/tasks.test.js
+@@
++test("createTask stamps the creation time", () => {
++  const task = createTask("x");
++  assert.ok(Math.abs(task.createdAt - Date.now()) < 50);
++});

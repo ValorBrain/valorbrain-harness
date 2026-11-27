@@ -1,0 +1,35 @@
+Two rules that conflict, stored by two agents on one token, read by a third.
+Run directly against https://mcpbrain.valor.digital/mcp (server 1.1.0), sending the headers a Timon MCP record would send.
+
+$ memory_store   (X-Source-Agent: ana-reviewer)   run at 2026-11-27T16:49:23Z
+✓ Memory stored: decision/Every migration needs a rollback file
+  Collection: agent-ana-reviewer
+  Path: decisions/2026-11-27-16-49-24-yu6ida.md
+  Docid: #55e9ba
+  Action: inserted
+  Visibility: tenant (whole company, you as author)
+
+$ memory_store   (X-Source-Agent: ben-implementer)   run at 2026-11-27T16:49:26Z
+✓ Memory stored: decision/Hotfix migrations are exempt from the rollback file
+  Collection: agent-ben-implementer
+  Path: decisions/2026-11-27-16-49-26-tlhxq5.md
+  Docid: #5c890b
+  Action: inserted
+  Visibility: tenant (whole company, you as author)
+
+$ memory_retrieve {"query":"does this hotfix migration need a rollback file?","limit":5}   (X-Source-Agent: cara-reviewer)   run at 2026-11-27T16:49:29Z
+⚠ Not your work:
+- agent-ben-implementer/decisions/2026-11-27-16-49-26-tlhxq5.md: CONCURRENT WORK: written by ben-implementer less than a minute ago. Somebody may be working here right now — check before you change it.
+- agent-ana-reviewer/decisions/2026-11-27-16-49-24-yu6ida.md: CONCURRENT WORK: written by ana-reviewer less than a minute ago. Somebody may be working here right now — check before you change it.
+- agent-ana-reviewer/decisions/2026-11-27-16-42-43-iagcvc.md: CONCURRENT WORK: written by ana-reviewer 6min ago. Somebody may be working here right now — check before you change it.
+
+Found 3 results for "does this hotfix migration need a rollback file?":
+
+[receipt] memory_retrieve(hybrid) "does this hotfix migration need a rollback file?" @ 2026-11-27T16:49:30.022Z · 3/3 · top=5c890b@2026-11-27,55e9ba@2026-11-27,b7e2b0@2026-11-27
+
+#5c890b 82% 2026-11-27 agent-ben-implementer/decisions/2026-11-27-16-49-26-tlhxq5.md - Hotfix migrations are exempt from the rollback file — --- # Hotfix migrations are exempt from the rollback file Decided by Ben on Thursday: a migration that ships as a hotfix is exempt from the rollback file rule.…
+  --- # Hotfix migrations are exempt from the rollback file Decided by Ben on Thursday: a migration that ships as a hotfix is exempt from the rollback file rule.…
+#55e9ba 82% 2026-11-27 agent-ana-reviewer/decisions/2026-11-27-16-49-24-yu6ida.md - Every migration needs a rollback file — --- # Every migration needs a rollback file Decided by Ana on Tuesday: every database migration must ship with a rollback file in the same pull request. Reason:…
+  --- # Every migration needs a rollback file Decided by Ana on Tuesday: every database migration must ship with a rollback file in the same pull request. Reason:…
+#b7e2b0 17% 2026-11-27 agent-ana-reviewer/decisions/2026-11-27-16-42-43-iagcvc.md - Refunds over 500 EUR need a second approver — --- # Refunds over 500 EUR need a second approver Decided by Ana on 2026-11-27: any refund above 500 EUR needs a second approver before it is issued. Reason: tw…
+  --- # Refunds over 500 EUR need a second approver Decided by Ana on 2026-11-27: any refund above 500 EUR needs a second approver before it is issued. Reason: tw…

@@ -55,6 +55,15 @@ jobs:
           node-version: "22"
       - run: node --test claude-code/test/*.test.mjs codex/test/*.test.mjs
 
+  opencomputer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node --test opencomputer/test/offline.test.mjs
+
   mcp:
     runs-on: ubuntu-latest
     steps:

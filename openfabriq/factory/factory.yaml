@@ -1,0 +1,23 @@
+name: task-lib factory
+description: From a ready issue to a reviewed pull request. Both agents read the team's memory; the reviewer writes to it. A human merges.
+repository: your-org/your-repo
+maintainers: [your-github-login]
+model: haiku
+
+commands:
+  test: npm test
+checks: [test]
+
+mcp:
+  valorbrain: # the team's memory: decisions and lessons that are not in the repository
+    url: https://mcpbrain.valor.digital/mcp
+    secret: MCP_VALORBRAIN_TOKEN # sent as "Authorization: Bearer"; its value: openfabriq secret set MCP_VALORBRAIN_TOKEN
+
+network: [packages, mcpbrain.valor.digital]
+
+limits:
+  usd_per_run: 2
+  usd_per_day: 6
+  minutes_per_run: 20
+  review_rounds: 2
+answer_mentions: false

@@ -1,0 +1,14 @@
+{
+  "name": "oc-memory-valorbrain",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "OpenComputer HTTP memory provider (contract preview, version 1) backed by ValorBrain",
+  "scripts": {
+    "start": "node oc-memory-valorbrain.mjs",
+    "test": "node --test test/offline.test.mjs",
+    "declaration": "node memory.declaration.mjs"
+  },
+  "engines": { "node": ">=18" },
+  "devDependencies": { "@opencomputer/agent": "0.9.1" }
+}

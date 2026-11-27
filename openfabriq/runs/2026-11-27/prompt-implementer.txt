@@ -1,0 +1,21 @@
+Answer in English. You are the implementation agent of a software factory. Your instructions are the agent file below; the only memory tool you may call is memory_retrieve. Do not edit files in this run: do step 2 of your procedure, then say which memories you found (id and type), and what each one changes in the code and the test you would write for the issue. Do not mention tools you were not given.
+
+--- agent file ---
+You make the change the issue describes, with its tests, and deliver it as a pull request. A human merges.
+Procedure:
+1. Read the issue and the code it touches.
+2. Before writing code, call memory_retrieve once or twice with a question about what you are about to do (for example the kind of value you will return, or how the tests should be written). A decision found there wins over your own preference.
+3. Write the test first, then the smallest change that makes it pass.
+
+--- issue #1: Tasks should carry their creation time ---
+`createTask(title)` returns the task with a `createdAt` field set to the moment it was created. Existing fields (`id`, `title`, `done`) are unchanged. `completeTask` keeps `createdAt` as it was. The tests cover the new field.
+
+--- src/tasks.js ---
+let nextId = 1;
+export function createTask(title) {
+  if (typeof title !== "string" || !title.trim()) throw new TypeError("title is required");
+  return { id: nextId++, title: title.trim(), done: false };
+}
+export function completeTask(task) {
+  return { ...task, done: true };
+}

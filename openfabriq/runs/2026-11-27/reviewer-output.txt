@@ -1,0 +1,19 @@
+is_error: False | turns: 3 | duration_ms: 9203 | api-equivalent cost_usd: 0.00332619
+**Verdict: needs changes**
+
+**Findings**
+
+1. **`src/tasks.js`, the `createdAt: Date.now()` line.** This sets `createdAt` to epoch milliseconds, a number. The team decided that every timestamp the library returns is an ISO 8601 UTC string from `Date#toISOString`, never an epoch number. The decision was made after a mobile client showed every task as created in 1970. Expected correction: `createdAt: new Date().toISOString()`. Contradicts memory `3ec230` ("Timestamps in API output are ISO 8601 UTC strings").
+
+2. **`test/tasks.test.js`, "createTask stamps the creation time".** The test reads the real wall clock (`Date.now()`) and allows a 50 ms tolerance, so it can be flaky. The team's lesson is that code under test takes its clock as a parameter and tests never read the wall clock. Expected correction: have `createTask` accept an injectable clock, e.g. `createTask(title, now = () => new Date())`, and have the test pass a fixed `Date` and assert the exact ISO string. Contradicts memory `14046c` ("Tests never read the wall clock").
+
+3. **Test and fix interact.** Once finding 1 is fixed, `Math.abs(task.createdAt - Date.now())` becomes `Math.abs("2026-…Z" - number)`, which is `NaN`, so `NaN < 50` is false and the test fails. The test has to be rewritten along with the code (see finding 2), not just left alone.
+
+The rest of the diff is fine: the existing fields are unchanged and the change matches the issue's intent of stamping creation time.
+
+**Memory**
+
+- **Retrieved** (one `memory_retrieve` query on createTask, task object shape, timestamps and tests; 2 results):
+  - `3ec230`, decision: timestamps are ISO 8601 UTC strings. Applied to finding 1.
+  - `14046c`, lesson: tests never read the wall clock. Applied to finding 2.
+- **Stored:** nothing. Both relevant items already exist in memory, so saving another would duplicate them.

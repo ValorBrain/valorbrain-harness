@@ -1,0 +1,2 @@
+ms from stored to first recall that includes the fact: 594, 461, 424, 339, 384, 378, 426, 307
+recall attempts needed (1 = the recall sent right after the write already had it): 1, 1, 1, 1, 1, 1, 1, 1

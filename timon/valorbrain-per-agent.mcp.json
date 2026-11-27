@@ -1,0 +1,12 @@
+{
+  "name": "ValorBrain (ana)",
+  "description": "Shared team memory; writes are signed as this agent",
+  "transport": {
+    "type": "http",
+    "url": "https://mcpbrain.valor.digital/mcp",
+    "headers": {
+      "Authorization": "Bearer <vbm_token>",
+      "X-Source-Agent": "ana-reviewer"
+    }
+  }
+}

@@ -1,0 +1,36 @@
+Security changes (read these first)
+  + command test runs on this machine: npm test
+  + mcp server valorbrain, at https://mcpbrain.valor.digital/mcp, with the secret MCP_VALORBRAIN_TOKEN
+  + maintainer agentxagi can now start automations
+  + agent implementer can now use edit
+  + agent implementer can now use shell
+  + agent reviewer can now use shell
+  + agent implementer can now call valorbrain.memory_retrieve
+  + agent reviewer can now call valorbrain.memory_retrieve
+  + agent reviewer can now call valorbrain.memory_store
+  + automation implement-ready-issues can now create_pull_request
+  + automation implement-ready-issues can now add_comment
+  + automation implement-ready-issues can now remove_labels (ready-for-agent)
+  + agent implementer can now reach mcpbrain.valor.digital
+  + agent reviewer can now reach mcpbrain.valor.digital
+
+Agents
+  + implementer: Implements a ready issue and opens a pull request
+  + reviewer: Reviews the implementer's change against the issue and the team's memory, before the pull request exists
+
+Automations
+  + implement-ready-issues: when issue.labeled (ready-for-agent) → implementer, reviewed by reviewer, can create_pull_request, add_comment, remove_labels (ready-for-agent)
+
+Factory settings
+  + checks: test
+
+Labels to create on GitHub
+  + needs-human
+  + openfabriq:working
+  + ready-for-agent
+  + ready-to-merge
+  + risk:high
+  + risk:low
+  + risk:medium
+
+Plan: 3 to add, 0 to change, 0 to remove, 7 labels to create.

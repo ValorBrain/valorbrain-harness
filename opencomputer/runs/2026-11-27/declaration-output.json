@@ -1,0 +1,52 @@
+{
+  "kind": "memory",
+  "version": 1,
+  "id": "knowledge",
+  "description": "Verified facts needed in later sessions. Shared by every session bound to the same namespace.",
+  "provider": {
+    "kind": "http",
+    "connection": "memory-service",
+    "path": "/oc-memory",
+    "maxBytes": 8192,
+    "tools": [
+      {
+        "name": "remember",
+        "description": "Save a verified fact. Visible to the next model request of any session bound to this namespace.",
+        "access": "write",
+        "idempotent": false,
+        "input": {
+          "type": "object",
+          "properties": {
+            "fact": {
+              "type": "string",
+              "maxLength": 2000
+            }
+          },
+          "required": [
+            "fact"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "search",
+        "description": "Search the saved facts for something the recalled text did not include.",
+        "access": "read",
+        "idempotent": false,
+        "input": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "maxLength": 500
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ]
+  }
+}
