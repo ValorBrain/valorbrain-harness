@@ -1,0 +1,11 @@
+{
+  "name": "ValorBrain",
+  "description": "Shared team memory: who decided what, and when",
+  "transport": {
+    "type": "http",
+    "url": "https://mcpbrain.valor.digital/mcp",
+    "headers": {
+      "Authorization": "Bearer <vbm_token>"
+    }
+  }
+}

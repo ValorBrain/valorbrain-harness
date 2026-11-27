@@ -1,0 +1,53 @@
+{
+  "id": "valorbrain",
+  "name": "ValorBrain",
+  "description": "Shared team memory: who decided what, and when",
+  "transport": {
+    "type": "http",
+    "url": "https://mcpbrain.valor.digital/mcp",
+    "header_secrets": {
+      "Authorization": {
+        "secret_id": "<id in Timon's vault>",
+        "typed": true
+      }
+    }
+  },
+  "source": "timon",
+  "tools_cache": [
+    "acl_me",
+    "append_entity_card",
+    "assert_authority_correction",
+    "authority_restore_demotion",
+    "commitments",
+    "diary",
+    "entity_cards",
+    "episodes",
+    "feedback",
+    "keyed_facts_as_of",
+    "list_lessons",
+    "memory_curate",
+    "memory_forget",
+    "memory_health",
+    "memory_recent",
+    "memory_retrieve",
+    "memory_store",
+    "memory_used",
+    "mental_models",
+    "notifications",
+    "record_lesson",
+    "secrets",
+    "task_state",
+    "team_briefing",
+    "team_handoff",
+    "team_inbox",
+    "team_message",
+    "team_notify_human",
+    "team_roster",
+    "upsert_keyed_fact",
+    "whoami",
+    "working_context"
+  ],
+  "tools_cached_at": 1795797774946,
+  "last_status": "connected",
+  "last_seen_at": 1795797774946
+}

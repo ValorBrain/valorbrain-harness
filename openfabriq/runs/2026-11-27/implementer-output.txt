@@ -1,0 +1,14 @@
+is_error: False | turns: 4 | duration_ms: 9872 | api-equivalent cost_usd: 0.0034765900000000003
+I ran two `memory_retrieve` queries and found two memories, both created today. I have not edited any files.
+
+**1. Decision: `3ec230` (type: decision, confidence 0.85)**
+"Timestamps in API output are ISO 8601 UTC strings." Every timestamp the library returns must be an ISO 8601 UTC string (`Date#toISOString`), never an epoch number. The maintainers made this call after PR #41 returned `createdAt` in milliseconds, and the mobile client showed every task as created in 1970.
+- **Code change:** `createdAt` should be `new Date().toISOString()`, not `Date.now()` and not a `Date` object.
+- **Test:** assert that `createdAt` is a string matching ISO 8601 UTC (ending in `Z`) and that it parses back to a valid date. Also assert that it is not a number.
+
+**2. Lesson: `14046c` (type: lesson, confidence 0.7)**
+"Tests never read the wall clock." Code under test takes its clock as a parameter, a `now` function that returns a Date, instead of calling `Date.now()` or `new Date()` itself. A test that compared against real time failed on CI around midnight UTC and cost a morning.
+- **Code change:** give `createTask` an injectable clock, for example `createTask(title, now = () => new Date())`. The one-argument call in the issue still works.
+- **Test:** pass a fixed clock, such as `() => new Date("2026-01-01T00:00:00.000Z")`, and assert `createdAt` equals that exact string. Do not compare against the real time.
+
+The issue itself does not mention an injectable clock. The lesson is a testing preference, so I would apply it to the test design and keep the public signature otherwise unchanged. The decision is binding on the value's format.

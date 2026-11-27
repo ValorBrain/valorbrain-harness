@@ -1,0 +1,1 @@
+{ "mcpServers": { "valorbrain": { "type": "http", "url": "https://mcpbrain.valor.digital/mcp", "headers": { "Authorization": "Bearer ${MCP_VALORBRAIN_TOKEN}" } } } }

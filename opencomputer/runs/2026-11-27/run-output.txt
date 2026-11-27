@@ -1,0 +1,224 @@
+
+### recall on an empty partition
+-> {"version":1,"operation":"recall","operationId":"mrq_100:knowledge","partition":"ocmem_v1_1795795829218-project-prod-knowledge-owner","access":"read-write","deadlineAt":"2026-11-27T16:10:39.218Z","input":{"text":"What hosting did we choose?"},"maxBytes":8192}
+<- HTTP 200 in 442 ms
+{
+  "text": "",
+  "sources": [],
+  "cursor": "e3b0c44298fc1c149afbf4c8996fb924"
+}
+PASS empty memory is text "" and sources []
+
+### tool remember (docs example)
+-> {"version":1,"operation":"tool","operationId":"toolcall_456:knowledge","partition":"ocmem_v1_1795795829218-project-prod-knowledge-owner","access":"read-write","deadlineAt":"2026-11-27T16:10:39.662Z","tool":"remember","arguments":{"fact":"Use the free hosting tier for the demo."},"cursor":"provider-snapshot-42"}
+<- HTTP 200 in 80 ms
+{
+  "result": {
+    "status": "stored",
+    "id": "#27ea0a"
+  }
+}
+PASS write returns result.status stored
+
+### same operationId replayed
+-> {"version":1,"operation":"tool","operationId":"toolcall_456:knowledge","partition":"ocmem_v1_1795795829218-project-prod-knowledge-owner","access":"read-write","deadlineAt":"2026-11-27T16:10:39.742Z","tool":"remember","arguments":{"fact":"Use the free hosting tier for the demo."},"cursor":"provider-snapshot-42"}
+<- HTTP 200 in 2 ms
+{
+  "result": {
+    "status": "stored",
+    "id": "#27ea0a"
+  }
+}
+PASS replay returns the original result
+
+### same operationId, changed arguments
+-> {"version":1,"operation":"tool","operationId":"toolcall_456:knowledge","partition":"ocmem_v1_1795795829218-project-prod-knowledge-owner","access":"read-write","deadlineAt":"2026-11-27T16:10:39.744Z","tool":"remember","arguments":{"fact":"Use the paid tier."},"cursor":"provider-snapshot-42"}
+<- HTTP 409 in 1 ms
+{
+  "error": {
+    "code": "conflict",
+    "message": "Same operationId, different tool call."
+  }
+}
+PASS changed arguments are rejected with 409 conflict
+
+### tool remember #2
+-> {"version":1,"operation":"tool","operationId":"toolcall_457:knowledge","partition":"ocmem_v1_1795795829218-project-prod-knowledge-owner","access":"read-write","deadlineAt":"2026-11-27T16:10:39.746Z","tool":"remember","arguments":{"fact":"No paid external services for the demo; the owner decided this on 2026-09-08."}}
+<- HTTP 200 in 72 ms
+{
+  "result": {
+    "status": "stored",
+    "id": "#5c3870"
+  }
+}
+
+### tool remember #3
+-> {"version":1,"operation":"tool","operationId":"toolcall_458:knowledge","partition":"ocmem_v1_1795795829218-project-prod-knowledge-owner","access":"read-write","deadlineAt":"2026-11-27T16:10:39.819Z","tool":"remember","arguments":{"fact":"The staging database is reset every night at 02:00 UTC, so long tests must finish before then."}}
+<- HTTP 200 in 72 ms
+{
+  "result": {
+    "status": "stored",
+    "id": "#033069"
+  }
+}
+
+### recall (docs example)
+-> {"version":1,"operation":"recall","operationId":"mrq_123:knowledge","partition":"ocmem_v1_1795795829218-project-prod-knowledge-owner","access":"read-write","deadlineAt":"2026-11-27T16:10:41.392Z","input":{"text":"What hosting did we choose?"},"maxBytes":8192}
+<- HTTP 200 in 367 ms
+{
+  "text": "- Use the free hosting tier for the demo. (2026-11-27)\n- No paid external services for the demo; the owner decided this on 2026-09-08. (2026-11-27)\n- The staging database is reset every night at 02:00 UTC, so long tests must finish before then. (2026-11-27)",
+  "sources": [
+    {
+      "id": "#27ea0a",
+      "title": "Use the free hosting tier for the demo.",
+      "revision": "1",
+      "updatedAt": "2026-11-27T16:10:29.701Z"
+    },
+    {
+      "id": "#5c3870",
+      "title": "No paid external services for the demo; the owner decided this on 2026-09-08.",
+      "revision": "1",
+      "updatedAt": "2026-11-27T16:10:29.780Z"
+    },
+    {
+      "id": "#033069",
+      "title": "The staging database is reset every night at 02:00 UTC, so long tests must finis",
+      "revision": "1",
+      "updatedAt": "2026-11-27T16:10:29.854Z"
+    }
+  ],
+  "cursor": "6d115b784883d05c0b985ffe72091324"
+}
+PASS recall returns the hosting fact with sources
+
+### recall with maxBytes 60
+-> {"version":1,"operation":"recall","operationId":"mrq_124:knowledge","partition":"ocmem_v1_1795795829218-project-prod-knowledge-owner","access":"read-write","deadlineAt":"2026-11-27T16:10:41.759Z","input":{"text":"What hosting did we choose?"},"maxBytes":60}
+<- HTTP 200 in 240 ms
+{
+  "text": "- Use the free hosting tier for the demo. (2026-11-27)",
+  "sources": [
+    {
+      "id": "#27ea0a",
+      "title": "Use the free hosting tier for the demo.",
+      "revision": "1",
+      "updatedAt": "2026-11-27T16:10:29.701Z"
+    }
+  ],
+  "cursor": "541635bfa6f16e0d939e03166f2ceaf2"
+}
+PASS text fits maxBytes and sources match what was kept
+
+### recall with input.text null
+-> {"version":1,"operation":"recall","operationId":"mrq_125:knowledge","partition":"ocmem_v1_1795795829218-project-prod-knowledge-owner","access":"read-write","deadlineAt":"2026-11-27T16:10:41.999Z","input":{"text":null},"maxBytes":8192}
+<- HTTP 200 in 112 ms
+{
+  "text": "- The staging database is reset every night at 02:00 UTC, so long tests must finish before then.\n- Use the free hosting tier for the demo.\n- No paid external services for the demo; the owner decided this on 2026-09-08.",
+  "sources": [
+    {
+      "id": "#033069",
+      "title": "The staging database is reset every night at 02:00 UTC, so long tests must finis",
+      "revision": "1"
+    },
+    {
+      "id": "#27ea0a",
+      "title": "Use the free hosting tier for the demo.",
+      "revision": "1"
+    },
+    {
+      "id": "#5c3870",
+      "title": "No paid external services for the demo; the owner decided this on 2026-09-08.",
+      "revision": "1"
+    }
+  ],
+  "cursor": "228c1257793ee003323c488b2ef5196b"
+}
+PASS null input does not fail
+
+### recall from another partition
+-> {"version":1,"operation":"recall","operationId":"mrq_126:knowledge","partition":"ocmem_v1_1795795829218-project-prod-knowledge-someone-else","access":"read-write","deadlineAt":"2026-11-27T16:10:42.112Z","input":{"text":"What hosting did we choose?"},"maxBytes":8192}
+<- HTTP 200 in 192 ms
+{
+  "text": "",
+  "sources": [],
+  "cursor": "e3b0c44298fc1c149afbf4c8996fb924"
+}
+PASS another partition sees nothing
+
+### write on a read-only binding
+-> {"version":1,"operation":"tool","operationId":"toolcall_459:knowledge","partition":"ocmem_v1_1795795829218-project-prod-knowledge-owner","access":"read","deadlineAt":"2026-11-27T16:10:42.304Z","tool":"remember","arguments":{"fact":"should not land"}}
+<- HTTP 403 in 1 ms
+{
+  "error": {
+    "code": "read_only",
+    "message": "This binding is read-only."
+  }
+}
+PASS read-only write is rejected
+
+### expired deadline
+-> {"version":1,"operation":"recall","operationId":"mrq_127:knowledge","partition":"ocmem_v1_1795795829218-project-prod-knowledge-owner","access":"read-write","deadlineAt":"2026-09-10T15:04:15.000Z","input":{"text":"x"},"maxBytes":8192}
+<- HTTP 400 in 1 ms
+{
+  "error": {
+    "code": "deadline_expired",
+    "message": "deadlineAt is in the past."
+  }
+}
+PASS expired deadline is rejected without touching storage
+
+### wrong credential
+-> {"version":1,"operation":"recall","operationId":"mrq_128:knowledge","partition":"ocmem_v1_1795795829218-project-prod-knowledge-owner","access":"read-write","deadlineAt":"2026-11-27T16:10:42.306Z","input":{"text":"x"},"maxBytes":8192}
+<- HTTP 401 in 1 ms
+{
+  "error": {
+    "code": "unauthorized",
+    "message": "Bad connection credential."
+  }
+}
+PASS wrong credential is 401
+
+### undeclared tool
+-> {"version":1,"operation":"tool","operationId":"toolcall_460:knowledge","partition":"ocmem_v1_1795795829218-project-prod-knowledge-owner","access":"read-write","deadlineAt":"2026-11-27T16:10:42.307Z","tool":"forget_everything","arguments":{}}
+<- HTTP 400 in 1 ms
+{
+  "error": {
+    "code": "unknown_tool",
+    "message": "No tool named forget_everything."
+  }
+}
+PASS undeclared tool is rejected
+
+### tool search (read)
+-> {"version":1,"operation":"tool","operationId":"toolcall_461:knowledge","partition":"ocmem_v1_1795795829218-project-prod-knowledge-owner","access":"read","deadlineAt":"2026-11-27T16:10:42.307Z","tool":"search","arguments":{"query":"when is staging reset"}}
+<- HTTP 200 in 465 ms
+{
+  "result": {
+    "facts": [
+      {
+        "id": "#033069",
+        "text": "The staging database is reset every night at 02:00 UTC, so long tests must finish before then.",
+        "updatedAt": "2026-11-27T16:10:29.854Z"
+      },
+      {
+        "id": "#5c3870",
+        "text": "No paid external services for the demo; the owner decided this on 2026-09-08.",
+        "updatedAt": "2026-11-27T16:10:29.780Z"
+      },
+      {
+        "id": "#27ea0a",
+        "text": "Use the free hosting tier for the demo.",
+        "updatedAt": "2026-11-27T16:10:29.701Z"
+      }
+    ]
+  }
+}
+PASS read tool works on a read-only binding
+
+### latency
+recall: n=7 min=1 median=192 max=442 ms
+tool:remember: n=6 min=1 median=72 max=80 ms
+tool:forget_everything: n=1 min=1 median=1 max=1 ms
+tool:search: n=1 min=465 median=465 max=465 ms
+recall_warm: n=10 min=131 median=234 max=270 ms
+
+ALL CHECKS PASSED
