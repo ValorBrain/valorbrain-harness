@@ -58,6 +58,11 @@ The authorship behaviour was run directly against the hosted server, one token a
 - `ana-reviewer` stored a decision. It went to the collection `agent-ana-reviewer`.
 - `ben-implementer` asked a question that the decision answers. The result came back with "written by ana-reviewer less than a minute ago", and `memory_recent` lists it as `(by ana-reviewer)`.
 
+Two rules that conflict, the same way ([`two-rules-two-authors.txt`](runs/2026-11-27/two-rules-two-authors.txt)):
+
+- `ana-reviewer` stored "every migration needs a rollback file". `ben-implementer` stored "hotfix migrations are exempt".
+- A third agent asked "does this hotfix migration need a rollback file?" and got both back, each under its author's collection with its date. Neither replaced the other. The server does not mark the pair as a conflict: the agent that reads them has to reconcile.
+
 This identifies the agent. It does not identify the person behind it: for that, each person needs their own token.
 
 ## What leaves your machine
